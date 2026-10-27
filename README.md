@@ -80,7 +80,22 @@ sidecar-resume     # 恢复自动重连
 
 ## 自定义分辨率
 
-面板分辨率 = 逻辑分辨率 × 2。改 `~/.config/sidecar/config.sh` 里的 `LOGICAL_W/LOGICAL_H`，
+面板分辨率 = 逻辑分辨率 × 2。
+
+**想让文字最清晰：选"与面板 1:1"的那一档。**
+
+以 iPad (A16) 11 吋为例，面板原生 **2360×1640**，对应逻辑 **1180×820 @2x**。
+此时 Mac 渲染多少像素，iPad 就显示多少像素，中间没有任何缩放——这是清晰度的上限。
+
+选更大的逻辑尺寸（如 1323×919 → 面板 2646×1838）会换来更多桌面空间，
+但画面比面板大，iPad 端要缩小显示，文字会略微变软。两者不可兼得。
+
+查看当前屏支持哪些 HiDPI 档位：
+
+```bash
+displayplacer list | grep "scaling:on"
+```
+改 `~/.config/sidecar/config.sh` 里的 `LOGICAL_W/LOGICAL_H`，
 再改对应的 launchd plist 里的 `--w/--h`，然后重新加载：
 
 ```bash
