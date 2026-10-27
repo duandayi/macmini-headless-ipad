@@ -52,3 +52,17 @@ if ! /usr/bin/pgrep -f "$H/.local/bin/vdisplay" >/dev/null 2>&1; then
     /bin/launchctl asuser $GU /bin/launchctl kickstart -k "gui/$GU/com.dsh.vdisplay" >/dev/null 2>&1
     logit "虚拟屏进程不在，已 kickstart"
 fi
+
+# ---- 自我加固：保证主副本始终是 schg（系统级不可变）----
+flags_of() { ls -lO "$1" 2>/dev/null | awk '{print $5}'; }
+need_lock=0
+for f in "$MASTER"/*; do
+    case "$(flags_of "$f")" in *schg*) ;; *) need_lock=1 ;; esac
+done
+case "$(flags_of "$MASTER")" in *schg*) ;; *) need_lock=1 ;; esac
+if [ "$need_lock" = "1" ]; then
+    chflags noschg "$MASTER" 2>/dev/null
+    for f in "$MASTER"/*; do chflags schg "$f" 2>/dev/null; done
+    chflags schg "$MASTER" 2>/dev/null
+    logit "主副本标记缺失，已重新加锁（schg）"
+fi
