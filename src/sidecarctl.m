@@ -30,10 +30,17 @@ static SidecarDisplayManager *mgr(void) {
 
 static SidecarDevice *findDevice(NSString *fragment, BOOL onlyConnected) {
     NSArray *list = onlyConnected ? [mgr() connectedDevices] : [mgr() devices];
+    if (!list.count) return nil;
+    if (!fragment.length) return list.firstObject;
+    // 支持三种匹配：完整 UUID / UUID 前缀 / 设备名片段
     for (SidecarDevice *d in list) {
-        if (!fragment.length || [[d name] containsString:fragment]) return d;
+        NSString *ident = [[d identifier] description] ?: @"";
+        if ([ident isEqualToString:fragment] || [ident hasPrefix:fragment]) return d;
+        if ([[d name] containsString:fragment]) return d;
     }
-    return list.count ? list.firstObject : nil;
+    // 明确指定了目标却找不到 → 不退回“随便第一台”，避免连错设备
+    fprintf(stderr, "未找到匹配 \"%s\" 的设备（可用 devices 查看）\n", [fragment UTF8String]);
+    return nil;
 }
 
 int main(int argc, const char **argv) {
