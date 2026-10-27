@@ -145,10 +145,10 @@ static NSImage *makeColorIcon(CGFloat scale) {
                 NSMutableAttributedString *as =
                     [[NSMutableAttributedString alloc] initWithString:plain attributes:@{
                         NSFontAttributeName: [NSFont menuFontOfSize:0],
-                        NSForegroundColorAttributeName: [NSColor labelColor],
+                        NSForegroundColorAttributeName: [NSColor whiteColor],
                         NSParagraphStyleAttributeName: ps,
                         NSBackgroundColorAttributeName:
-                            [NSColor colorWithCalibratedRed:0.42 green:0.70 blue:1.0 alpha:0.30]
+                            [NSColor colorWithCalibratedRed:0.30 green:0.62 blue:1.0 alpha:0.55]
                     }];
                 it.attributedTitle = as;
             }
