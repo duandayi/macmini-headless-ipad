@@ -84,3 +84,24 @@ if ! /usr/bin/pgrep -f "$H/.local/bin/vdisplay" >/dev/null 2>&1; then
     /bin/launchctl asuser $GU /bin/launchctl kickstart -k "gui/$GU/com.dsh.vdisplay" >/dev/null 2>&1
     logit "虚拟屏进程不在，已 kickstart"
 fi
+
+# 6) 守护「假死」看护：进程在但心跳停了 → 重启它
+#    sidecar-guard 每 5 秒写一次 /tmp/sidecar-guard.status，120 秒没更新就是卡死了
+ST=/tmp/sidecar-guard.status
+if /usr/bin/pgrep -f "$H/.local/bin/sidecar-guard" >/dev/null 2>&1; then
+    if [ -f "$ST" ]; then
+        age=$(( $(date +%s) - $(stat -f %m "$ST" 2>/dev/null || echo 0) ))
+        if [ "$age" -gt 120 ]; then
+            logit "守护心跳超过 ${age}s 未更新（疑似卡死），强制重启"
+            pkill -f "$H/.local/bin/sidecar-guard" 2>/dev/null
+            sleep 1
+            # 被 SIGSTOP 卡住的进程收不到 SIGTERM，补一刀 SIGKILL
+            if /usr/bin/pgrep -f "$H/.local/bin/sidecar-guard" >/dev/null 2>&1; then
+                pkill -9 -f "$H/.local/bin/sidecar-guard" 2>/dev/null
+                logit "SIGTERM 无效，已 SIGKILL"
+                sleep 1
+            fi
+            /bin/launchctl asuser $GU /bin/launchctl kickstart -k "gui/$GU/com.dsh.sidecar-guard" >/dev/null 2>&1
+        fi
+    fi
+fi
