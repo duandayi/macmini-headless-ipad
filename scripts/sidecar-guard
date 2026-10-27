@@ -1,5 +1,5 @@
 #!/bin/bash
-# sidecar-guard v18 — 私有 API 直连 + USB 优先 + 近场感应 + 不打扰用户
+# sidecar-guard v19 — 私有 API 直连 + USB 优先 + 近场感应 + 不打扰用户
 LOG="$HOME/Library/Logs/sidecar-guard.log"
 STATUS="/tmp/sidecar-guard.status"
 PAUSE="$HOME/.sidecar-pause"
@@ -30,6 +30,13 @@ connected_count() {
 }
 connected() { [ "$(connected_count)" -ge 1 ] 2>/dev/null; }
 
+# 能被发现的设备数量（0 = iPad 关机或不在蓝牙范围）
+devices_count() {
+    local n
+    n=$("$BIN/sidecarctl" list 2>/dev/null | awk '/^可用设备/ {gsub(/[^0-9]/,""); print; exit}')
+    echo "${n:-0}"
+}
+
 ipad_on_usb() {
     system_profiler SPUSBDataType 2>/dev/null \
       | grep -E "^[[:space:]]+[^[:space:]].*iPad" >/dev/null 2>&1
@@ -43,7 +50,7 @@ ipad_rssi() {
 
 BT=$(sysctl -n kern.boottime | sed -E 's/^\{ sec = ([0-9]+).*/\1/')
 UPTIME=$(( $(date +%s) - BT ))
-logit "=== sidecar-guard v18 启动 (pid $$, 开机后 ${UPTIME}s) ==="
+logit "=== sidecar-guard v19 启动 (pid $$, 开机后 ${UPTIME}s) ==="
 FAILS=0; CONNECTS=0; TICKN=0; LAST_HB=$(date +%s); LAST_TRIGGER=""
 BACKOFF=5; NEAR=0; COOLDOWN_UNTIL=0
 
@@ -121,7 +128,16 @@ while true; do
                 if connected; then
                     logit "重连成功"; FAILS=0; BACKOFF=5; state=yes
                 else
-                    BACKOFF=$(( BACKOFF * 2 )); [ "$BACKOFF" -gt 120 ] && BACKOFF=120
+                    # 设备还能被发现 → 链路即将恢复，快速重试（10 秒）
+                    # 设备找不到   → 多半是 iPad 关机，慢速重试（120 秒），省电
+                    devs=$(devices_count)
+                    BACKOFF=$(( BACKOFF * 2 ))
+                    if [ "$devs" -ge 1 ]; then
+                        [ "$BACKOFF" -gt 10 ] && BACKOFF=10
+                    else
+                        [ "$BACKOFF" -gt 120 ] && BACKOFF=120
+                    fi
+                    logit "重试等待 ${BACKOFF}s（可见设备 ${devs} 台）"
                     sleep "$BACKOFF"
                 fi
             fi
@@ -133,6 +149,7 @@ while true; do
         echo "state=running"
         echo "connected=$state"
         echo "connected_count=$(connected_count)"
+echo "devices_visible=$(devices_count)"
         echo "connects=$CONNECTS"
         echo "usb_ipad=$usb"
         echo "bt_rssi=${rssi:-?}"
