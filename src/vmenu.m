@@ -5,6 +5,10 @@
 #import <Foundation/Foundation.h>
 #import <AppKit/AppKit.h>
 
+#ifndef VD_ICON_DY
+#define VD_ICON_DY 1.0
+#endif
+
 static NSStatusItem *gItem;
 static NSString *gDisplayplacer;
 
@@ -116,31 +120,26 @@ int main(void) {
         [app setActivationPolicy:NSApplicationActivationPolicyAccessory];
         gItem = [[NSStatusBar systemStatusBar] statusItemWithLength:NSVariableStatusItemLength];
 
-        // 图标：优先用系统符号（自动适配深浅色/模板渲染），失败则手绘一个显示器图标
-        NSImage *icon = nil;
-        if (@available(macOS 11.0, *)) {
-            icon = [NSImage imageWithSystemSymbolName:@"display"
-                             accessibilityDescription:@"分辨率"];
-        }
-        if (!icon) {
-            icon = [[NSImage alloc] initWithSize:NSMakeSize(18, 16)];
-            [icon lockFocus];
-            NSBezierPath *screen = [NSBezierPath bezierPathWithRoundedRect:NSMakeRect(1, 3, 16, 11)
-                                                                   xRadius:2 yRadius:2];
-            [screen setLineWidth:1.4];
-            [[NSColor blackColor] setStroke];
-            [screen stroke];
-            NSBezierPath *stand = [NSBezierPath bezierPath];
-            [stand moveToPoint:NSMakePoint(6, 1.2)];
-            [stand lineToPoint:NSMakePoint(12, 1.2)];
-            [stand setLineWidth:1.4];
-            [stand stroke];
-            [icon unlockFocus];
-        }
+        // 图标：手绘显示器轮廓（无支架下垂），与相邻状态栏图标同高、同视觉重心
+        NSSize canvasSize = NSMakeSize(18, 16);
+        NSImage *icon = [[NSImage alloc] initWithSize:canvasSize];
+        [icon lockFocus];
+        [[NSColor blackColor] setStroke];
+        // 屏幕
+        NSBezierPath *screen = [NSBezierPath bezierPathWithRoundedRect:NSMakeRect(1.7, 3.5, 14.6, 9.6)
+                                                               xRadius:2.2 yRadius:2.2];
+        [screen setLineWidth:1.4];
+        [screen stroke];
+        // 底座
+        NSBezierPath *base = [NSBezierPath bezierPathWithRoundedRect:NSMakeRect(6.9, 2.0, 4.2, 1.3)
+                                                             xRadius:0.7 yRadius:0.7];
+        [base setLineWidth:1.1];
+        [base stroke];
+        [icon unlockFocus];
         [icon setTemplate:YES];
-        [icon setSize:NSMakeSize(18, 15)];
         gItem.button.image = icon;
         gItem.button.imagePosition = NSImageOnly;
+        gItem.button.imageScaling = NSImageScaleNone;
         gItem.button.toolTip = @"分辨率（点一下切换）";
         NSMenu *menu = [NSMenu new];
         VM *vm = [VM new];
