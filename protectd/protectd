@@ -1,33 +1,64 @@
 #!/bin/bash
-# protectd — root 级看护：本机核心功能（iPad 副屏）的所有组件归它保
-# 被保护对象：自研二进制、启动配置；任何改动 20 秒内还原
+# protectd v4 — root 看护：核心功能（iPad 副屏）的文件与启动项不可被改动
+#   1) 内容被改 → 从 master 还原
+#   2) 主副本 schg / 用户副本 uchg 标记掉了 → 自动补
+#   3) LaunchAgent 被卸载（连续两次）→ 重新加载
+#   4) 关键进程被杀 → kickstart
 LOG=/Library/Logs/dsh-sidecar-protect.log
 MASTER=/usr/local/libexec/dsh-sidecar
 H=/Users/duandayi
 U=duandayi
 GU=501
+
+BINS="vdisplay sidecarctl vmenu sidecar-guard uc-guard sidecar-status sidecar-doctor sidecar-report sidecar-pause sidecar-resume"
+PLISTS="com.dsh.vdisplay.plist com.dsh.sidecar-guard.plist com.dsh.vmenu.plist com.dsh.ucguard.plist"
+
 logit() { echo "$(date '+%F %T') $*" >> "$LOG"; }
+flags_of() { ls -lO "$1" 2>/dev/null | awk '{print $5}'; }
 
 restore_file() { # $1=master $2=target $3=mode
-    if ! /usr/bin/cmp -s "$1" "$2" 2>/dev/null; then
-        chflags nouchg "$2" 2>/dev/null; chflags noschg "$2" 2>/dev/null
-        /bin/cp -f "$1" "$2" 2>/dev/null
-        chown "$U":staff "$2" 2>/dev/null
-        chmod "$3" "$2" 2>/dev/null
-        chflags uchg "$2" 2>/dev/null
-        logit "已恢复 $2"
-    fi
+    [ -f "$1" ] || return 0
+    /usr/bin/cmp -s "$1" "$2" 2>/dev/null && return 0
+    chflags nouchg "$2" 2>/dev/null
+    /bin/cp -f "$1" "$2" 2>/dev/null
+    chown "$U":staff "$2" 2>/dev/null
+    chmod "$3" "$2" 2>/dev/null
+    chflags uchg "$2" 2>/dev/null
+    logit "已恢复 $2"
 }
 
-# 二进制与脚本
-for f in vdisplay sidecarctl vmenu sidecar-guard sidecar-status sidecar-doctor sidecar-report sidecar-pause sidecar-resume; do
-    [ -f "$MASTER/$f" ] && restore_file "$MASTER/$f" "$H/.local/bin/$f" 755
+# 1) 内容还原
+for f in $BINS;  do restore_file "$MASTER/$f" "$H/.local/bin/$f" 755; done
+for p in $PLISTS; do restore_file "$MASTER/$p" "$H/Library/LaunchAgents/$p" 644; done
+
+# 2) 用户副本补锁
+for f in $BINS; do
+    t="$H/.local/bin/$f"; [ -f "$t" ] || continue
+    case "$(flags_of "$t")" in
+        *uchg*) ;;
+        *) chflags uchg "$t" 2>/dev/null && logit "用户副本补锁: $f" ;;
+    esac
 done
-# 启动配置
-for p in com.dsh.vdisplay.plist com.dsh.sidecar-guard.plist com.dsh.vmenu.plist; do
-    [ -f "$MASTER/$p" ] && restore_file "$MASTER/$p" "$H/Library/LaunchAgents/$p" 644
+for p in $PLISTS; do
+    t="$H/Library/LaunchAgents/$p"; [ -f "$t" ] || continue
+    case "$(flags_of "$t")" in
+        *uchg*) ;;
+        *) chflags uchg "$t" 2>/dev/null && logit "用户 plist 补锁: $p" ;;
+    esac
 done
 
+# 3) 主副本自加固（schg）
+need=0
+for f in "$MASTER"/*; do case "$(flags_of "$f")" in *schg*) ;; *) need=1 ;; esac; done
+case "$(flags_of "$MASTER")" in *schg*) ;; *) need=1 ;; esac
+if [ "$need" = "1" ]; then
+    chflags noschg "$MASTER" 2>/dev/null
+    for f in "$MASTER"/*; do chflags schg "$f" 2>/dev/null; done
+    chflags schg "$MASTER" 2>/dev/null
+    logit "主副本标记缺失，已重新加锁（schg）"
+fi
+
+# 4) LaunchAgent 看护（连续两次缺失才重载，避免开机早期误判）
 ensure_agent() { # $1=label $2=plist
     local mark="/var/tmp/dsh-sidecar-missing-$1"
     if /bin/launchctl print "gui/$GU/$1" >/dev/null 2>&1; then rm -f "$mark"; return; fi
@@ -42,8 +73,9 @@ ensure_agent() { # $1=label $2=plist
 ensure_agent "com.dsh.sidecar-guard" "$H/Library/LaunchAgents/com.dsh.sidecar-guard.plist"
 ensure_agent "com.dsh.vdisplay"      "$H/Library/LaunchAgents/com.dsh.vdisplay.plist"
 ensure_agent "com.dsh.vmenu"         "$H/Library/LaunchAgents/com.dsh.vmenu.plist"
+ensure_agent "com.dsh.ucguard"       "$H/Library/LaunchAgents/com.dsh.ucguard.plist"
 
-# 进程不在 → 拉起
+# 5) 进程看护
 if ! /usr/bin/pgrep -f "$H/.local/bin/sidecar-guard" >/dev/null 2>&1; then
     /bin/launchctl asuser $GU /bin/launchctl kickstart -k "gui/$GU/com.dsh.sidecar-guard" >/dev/null 2>&1
     logit "守护进程不在，已 kickstart"
@@ -51,18 +83,4 @@ fi
 if ! /usr/bin/pgrep -f "$H/.local/bin/vdisplay" >/dev/null 2>&1; then
     /bin/launchctl asuser $GU /bin/launchctl kickstart -k "gui/$GU/com.dsh.vdisplay" >/dev/null 2>&1
     logit "虚拟屏进程不在，已 kickstart"
-fi
-
-# ---- 自我加固：保证主副本始终是 schg（系统级不可变）----
-flags_of() { ls -lO "$1" 2>/dev/null | awk '{print $5}'; }
-need_lock=0
-for f in "$MASTER"/*; do
-    case "$(flags_of "$f")" in *schg*) ;; *) need_lock=1 ;; esac
-done
-case "$(flags_of "$MASTER")" in *schg*) ;; *) need_lock=1 ;; esac
-if [ "$need_lock" = "1" ]; then
-    chflags noschg "$MASTER" 2>/dev/null
-    for f in "$MASTER"/*; do chflags schg "$f" 2>/dev/null; done
-    chflags schg "$MASTER" 2>/dev/null
-    logit "主副本标记缺失，已重新加锁（schg）"
 fi

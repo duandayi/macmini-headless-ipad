@@ -1,17 +1,19 @@
 #!/bin/bash
-# sidecar-guard v17 — 私有 API 直连 + USB 优先 + 近场感应
-#   触发顺序：USB 插上（最快最稳） > 蓝牙近场（iPad 在附近） > 定时兜底
+# sidecar-guard v18 — 私有 API 直连 + USB 优先 + 近场感应 + 不打扰用户
 LOG="$HOME/Library/Logs/sidecar-guard.log"
 STATUS="/tmp/sidecar-guard.status"
 PAUSE="$HOME/.sidecar-pause"
 BIN="$HOME/.local/bin"
 VDNAME="${VDISPLAY_NAME:-SideLinker-HD}"
-# 设备绑定：只连这一台（UUID），别人的 iPad 一律不碰
 CFG="$HOME/.config/sidecar/config.sh"
 [ -f "$CFG" ] && . "$CFG"
 TARGET="${SIDECAR_DEVICE_ID:-}"
-TICK=5            # 快轮询（USB/近场判断）
-FALLBACK_TICKS=6  # 约 30 秒兜底重连一次
+TICK=5
+FALLBACK_TICKS=6
+GU=$(id -u)
+COOLDOWN_FILE=/tmp/sidecar-cooldown
+BOOT_PHASE=300
+PAUSE_MAX=600          # 暂停上限 10 分钟
 logit() { echo "$(date '+%F %T') $*" >> "$LOG"; }
 
 idle_seconds() {
@@ -20,12 +22,15 @@ idle_seconds() {
     [ -n "$ns" ] && echo $((ns / 1000000000)) || echo 0
 }
 
-connected() { "$BIN/sidecarctl" list 2>/dev/null | grep -q "已连接 1"; }
+# 已连接设备数量（>=1 即视为已连接，兼容多台设备）
+connected_count() {
+    local n
+    n=$("$BIN/sidecarctl" list 2>/dev/null | awk '/^已连接/ {gsub(/[^0-9]/,""); print; exit}')
+    echo "${n:-0}"
+}
+connected() { [ "$(connected_count)" -ge 1 ] 2>/dev/null; }
 
 ipad_on_usb() {
-    # 只查 system_profiler 的 USB 设备树。
-    # 之前同时 grep 了 `ioreg -p IOUSB -l -w0` 的全量 dump，里面有内核类名
-    # "AppleStoweBTMiPad" 之类，导致无线连接也被误判成 USB（且 dump 很慢）。
     system_profiler SPUSBDataType 2>/dev/null \
       | grep -E "^[[:space:]]+[^[:space:]].*iPad" >/dev/null 2>&1
 }
@@ -38,46 +43,46 @@ ipad_rssi() {
 
 BT=$(sysctl -n kern.boottime | sed -E 's/^\{ sec = ([0-9]+).*/\1/')
 UPTIME=$(( $(date +%s) - BT ))
-logit "=== sidecar-guard v17 启动 (pid $$, 开机后 ${UPTIME}s) ==="
+logit "=== sidecar-guard v18 启动 (pid $$, 开机后 ${UPTIME}s) ==="
 FAILS=0; CONNECTS=0; TICKN=0; LAST_HB=$(date +%s); LAST_TRIGGER=""
-BACKOFF=5          # 失败退避（秒），逐次翻倍，上限 120
-NEAR=0             # 连续检测到 iPad 很近的次数
-COOLDOWN_FILE=/tmp/sidecar-cooldown
-COOLDOWN_UNTIL=0   # "用户在用 iPad" 冷却截止时间（落盘，重启/手动都能清）
-BOOT_PHASE=300     # 开机 5 分钟内视为开机阶段，积极连接
-BT2=$BT
+BACKOFF=5; NEAR=0; COOLDOWN_UNTIL=0
 
 while true; do
     now=$(date +%s); TICKN=$((TICKN+1))
+
+    # --- 暂停（最多 10 分钟自动恢复）---
     if [ -f "$PAUSE" ]; then
-        # 暂停最多 10 分钟，避免误点菜单后永远不恢复连接
         age=$(( now - $(stat -f %m "$PAUSE" 2>/dev/null || echo "$now") ))
-        if [ "$age" -gt 600 ]; then
+        if [ "$age" -gt "$PAUSE_MAX" ]; then
             rm -f "$PAUSE"
             logit "暂停已超过 10 分钟（${age}s），自动恢复自动重连"
         else
-            printf "updated=%s\nstate=paused\nauto_resume_in=%ss\n" \
-                "$(date '+%F %T')" $((600 - age)) > "$STATUS"
+            printf "updated=%s\nstate=paused\nauto_resume_in=%ss\nconnected=%s\n" \
+                "$(date '+%F %T')" $((PAUSE_MAX - age)) \
+                "$(connected && echo yes || echo no)" > "$STATUS"
             sleep 15; continue
         fi
     fi
 
-    # 虚拟屏
+    # --- 虚拟屏：只由 LaunchAgent 负责（单一所有者，避免双开）---
     if ! pgrep -f "$BIN/vdisplay" >/dev/null 2>&1; then
-        nohup "$BIN/vdisplay" --name "$VDNAME" >/tmp/vdisplay.out 2>&1 &
-        logit "虚拟屏不在，已拉起 vdisplay"; sleep 4
+        launchctl kickstart -k "gui/$GU/com.dsh.vdisplay" >/dev/null 2>&1
+        logit "虚拟屏进程不在，已 kickstart vdisplay（不自行 spawn，避免双开）"
+        sleep 3
     fi
 
-    usb=no; rssi=""
-    ipad_on_usb && usb=yes
+    usb=no; ipad_on_usb && usb=yes
     rssi=$(ipad_rssi)
-    UP=$(( $(date +%s) - BT2 ))
+    UP=$(( $(date +%s) - BT ))
     [ -f "$COOLDOWN_FILE" ] && COOLDOWN_UNTIL=$(cat "$COOLDOWN_FILE" 2>/dev/null || echo 0)
-    if ! connected; then
+
+    if connected; then
+        if [ "$FAILS" -gt 0 ]; then logit "已恢复（本次累计重连 ${CONNECTS} 次）"; fi
+        FAILS=0; BACKOFF=5; COOLDOWN_UNTIL=0; state=yes
+    else
         state=no
         if [ "$now" -lt "$COOLDOWN_UNTIL" ]; then
-            # 冷却中：用户大概率正拿着 iPad（打游戏/看视频），不要抢。
-            # 但如果 iPad 明显回到电脑旁边（信号很强），说明想用了 → 自动取消冷却
+            # 冷却中：iPad 回到很近的地方（> -50dBm）连续两次 → 自动取消冷却
             if [ -n "$rssi" ] && [ "$rssi" -gt -50 ] 2>/dev/null; then
                 NEAR=$((NEAR+1))
                 if [ "$NEAR" -ge 2 ]; then
@@ -95,50 +100,58 @@ while true; do
                 trigger="开机阶段"
             elif [ "$usb" = "yes" ]; then
                 trigger="USB"
-            elif [ "$idle" -gt 120 ] && [ "$FAILS" -ge 1 ]; then
-                # 断线 + Mac 侧长时间无操作 = 用户拿 iPad 走了/在用它
+            elif [ "$idle" -gt 120 ] && { [ -z "$rssi" ] || [ "$rssi" -lt -50 ]; }; then
+                # Mac 侧无操作 + iPad 不在旁边 → 用户带走了 iPad，先不打扰
                 COOLDOWN_UNTIL=$((now + 600)); echo "$COOLDOWN_UNTIL" > "$COOLDOWN_FILE"; NEAR=0
-                logit "[用户在用 iPad] Mac 已空闲 ${idle}s，暂停自动重连 10 分钟（如需立刻连：sidecar-resume 或点菜单）"
+                logit "[用户在用 iPad] Mac 空闲 ${idle}s 且 iPad 不在近处，暂停自动重连 10 分钟"
                 LAST_TRIGGER="用户在用 iPad"
             elif [ -n "$rssi" ] && [ "$rssi" -gt -60 ] 2>/dev/null; then
                 trigger="近场(信号 ${rssi})"
             elif [ $((TICKN % FALLBACK_TICKS)) -eq 0 ]; then
                 trigger="定时兜底"
             fi
+
             if [ -n "$trigger" ]; then
                 CONNECTS=$((CONNECTS+1)); FAILS=$((FAILS+1))
                 logit "[${trigger}] 未连接 → sidecarctl connect"
                 out=$("$BIN/sidecarctl" connect "$TARGET" 2>&1 | tr '\n' ' ')
                 logit "sidecarctl: $out"
                 LAST_TRIGGER="$trigger"
-                # 退避：失败越多等越久
-                BACKOFF=$(( BACKOFF * 2 )); [ "$BACKOFF" -gt 120 ] && BACKOFF=120
-                sleep "$BACKOFF"
+                sleep 2
+                if connected; then
+                    logit "重连成功"; FAILS=0; BACKOFF=5; state=yes
+                else
+                    BACKOFF=$(( BACKOFF * 2 )); [ "$BACKOFF" -gt 120 ] && BACKOFF=120
+                    sleep "$BACKOFF"
+                fi
             fi
         fi
-    else
-        if [ "$FAILS" -gt 0 ]; then logit "已恢复（本次累计重连 ${CONNECTS} 次）"; fi
-        FAILS=0; BACKOFF=5; COOLDOWN_UNTIL=0; state=yes
     fi
 
     {
         echo "updated=$(date '+%F %T')"
         echo "state=running"
         echo "connected=$state"
+        echo "connected_count=$(connected_count)"
         echo "connects=$CONNECTS"
         echo "usb_ipad=$usb"
         echo "bt_rssi=${rssi:-?}"
         echo "last_trigger=${LAST_TRIGGER:-—}"
-echo "idle_s=$(idle_seconds)"
-echo "cooldown_left=$([ "$(date +%s)" -lt "$COOLDOWN_UNTIL" ] && echo $((COOLDOWN_UNTIL - $(date +%s))) || echo 0)"
+        echo "idle_s=$(idle_seconds)"
+        if [ "$(date +%s)" -lt "$COOLDOWN_UNTIL" ]; then
+            echo "cooldown_left=$((COOLDOWN_UNTIL - $(date +%s)))"
+        else
+            echo "cooldown_left=0"
+        fi
         echo "vdisplay=$(pgrep -f "$BIN/vdisplay" >/dev/null && echo yes || echo no)"
         echo "backend=SidecarCore(private)"
         echo "tick=${TICK}s"
+        echo "target=${TARGET:-未绑定}"
         echo "boot_at=$(date -r "$(sysctl -n kern.boottime | sed -E 's/^\{ sec = ([0-9]+).*/\1/')" '+%F %T')"
     } > "$STATUS"
 
     if [ $((now - LAST_HB)) -ge 600 ]; then
-        LAST_HB=$now; logit "[心跳] 连接=${state} | 重连 ${CONNECTS} 次 | 最近触发=${LAST_TRIGGER:-—}"
+        LAST_HB=$now; logit "[心跳] 连接=${state} | 重连 ${CONNECTS} 次 | 触发=${LAST_TRIGGER:-—}"
     fi
     sleep "$TICK"
 done
