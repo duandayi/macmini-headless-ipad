@@ -23,6 +23,15 @@ clang -fobjc-arc -framework Foundation -framework AppKit \
       -o "$BIN/vdisplay" "$ROOT/src/vdisplay.m"
 echo "    已安装: $BIN/vdisplay"
 
+say "2b/6 编译菜单栏分辨率切换 vmenu（可选，需要 displayplacer）"
+if [ -x "$BIN/displayplacer" ] || command -v displayplacer >/dev/null; then
+    clang -fobjc-arc -framework Foundation -framework AppKit \
+          -O2 -o "$BIN/vmenu" "$ROOT/src/vmenu.m"
+    echo "    已安装: $BIN/vmenu"
+else
+    echo "    跳过：未装 displayplacer（brew install displayplacer 后可重跑本步）"
+fi
+
 say "3/6 安装脚本"
 for f in sidecar-guard sidecar-status sidecar-pause sidecar-resume sidecar-doctor; do
     install -m 755 "$ROOT/scripts/$f" "$BIN/$f"
@@ -71,6 +80,7 @@ launchctl bootout "gui/$(id -u)/$PREFIX.vdisplay" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/$PREFIX.sidecar-guard" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$LA/$PREFIX.vdisplay.plist"
 launchctl bootstrap "gui/$(id -u)" "$LA/$PREFIX.sidecar-guard.plist"
+[ -f "$LA/$PREFIX.vmenu.plist" ] && launchctl bootstrap "gui/$(id -u)" "$LA/$PREFIX.vmenu.plist"
 
 cat <<'TIP'
 

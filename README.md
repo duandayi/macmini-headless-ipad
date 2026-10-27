@@ -67,6 +67,25 @@ cd macmini-headless-ipad
 
 ---
 
+## 菜单栏切换分辨率
+
+装好后菜单栏会多一个 **显示器图标**，点开就是：
+
+```
+主屏 iPad  1180×820
+  ├ 1180×820   Retina   ← 与面板 1:1，最清晰
+  ├ 1323×919   Retina   ← 空间更大，略软
+  ├ 1024×768   1x
+  └ …
+屏幕 2  2360×1640          ← 虚拟屏本身，一般不用动
+重新扫描 ⌘R
+退出 ⌘Q
+```
+
+选哪一档就立刻切换，不用开「系统设置」。带 **Retina** 的是 HiDPI（2x 渲染），清晰度更好。
+
+> 依赖 [displayplacer](https://github.com/jakehilborn/displayplacer)（开源，`brew install displayplacer`）。
+
 ## 常用命令
 
 ```bash
