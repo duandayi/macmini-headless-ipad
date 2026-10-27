@@ -33,10 +33,10 @@ else
 fi
 
 say "3/6 安装脚本"
-for f in sidecar-guard sidecar-status sidecar-pause sidecar-resume sidecar-doctor; do
+for f in sidecar-guard sidecar-status sidecar-pause sidecar-resume sidecar-doctor sidecar-report; do
     install -m 755 "$ROOT/scripts/$f" "$BIN/$f"
 done
-echo "    已安装 5 个命令到 $BIN"
+echo "    已安装 6 个命令到 $BIN"
 
 say "4/6 生成配置"
 if [ ! -f "$CFG/config.sh" ]; then
@@ -94,6 +94,7 @@ cat <<'TIP'
 
 常用命令：
   sidecar-doctor    环境自检（装机后先跑这个）
+  sidecar-report    测试期报告：每次开机耗时/干预次数
   sidecar-status    看链路状态
   sidecar-pause     暂停自动重连
   sidecar-resume    恢复自动重连

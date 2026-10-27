@@ -1,0 +1,55 @@
+#!/bin/bash
+# sidecar-report —— 测试期报告：每次开机多久连上、有没有人工干预、有没有被改动
+LOG="$HOME/Library/Logs/sidecar-guard.log"
+PLOG="/Library/Logs/dsh-sidecar-protect.log"
+START_FILE="$HOME/.config/sidecar/test-start"
+START=$(cat "$START_FILE" 2>/dev/null || echo "2026-10-27 00:00:00")
+
+echo "=== 测试期报告（自 $START 起）==="
+echo
+# 用 python 更准确地算时长
+/Users/duandayi/.dsh/dsh-runtimes/dsh-primary-runtime/dependencies/python/bin/python3 - "$LOG" "$START" <<'PYEOF'
+import sys, re, datetime
+log, start = sys.argv[1], sys.argv[2]
+rows = []
+try:
+    lines = open(log, encoding="utf-8").read().splitlines()
+except FileNotFoundError:
+    lines = []
+def ts(line):
+    m = re.match(r"(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)", line)
+    return datetime.datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S") if m else None
+cur = None
+for ln in lines:
+    if ln < start: continue
+    if "=== sidecar-guard 启动" in ln:
+        cur = {"boot": ts(ln), "conn": None, "wake": 0, "heal": 0}
+    elif cur:
+        if "已恢复连接" in ln and not cur["conn"]:
+            cur["conn"] = ts(ln)
+        if "下发 /wake" in ln: cur["wake"] += 1
+        if "重启 SideLinker" in ln: cur["heal"] += 1
+        if "=== sidecar-guard 启动" not in ln and cur["conn"]:
+            rows.append(cur); cur = None
+if cur: rows.append(cur)
+print(f"{'开机':<20}{'守护启动':<10}{'连上耗时':<10}{'唤醒次数':<9}{'重启App'}")
+for r in rows:
+    b = r["boot"]; c = r["conn"]
+    took = f'{(c-b).seconds}s' if c else '未连上'
+    print(f"{b:%Y-%m-%d %H:%M:%S}  {'':<8}{took:<10}{r['wake']:<9}{r['heal']}")
+if not rows:
+    print("（暂无记录，跑一次开机后就会有）")
+PYEOF
+echo
+echo "=== 是否被改动过（root 看护日志）==="
+if [ -f "$PLOG" ]; then
+    n=$(awk -v s="$START" '$0 >= s' "$PLOG" 2>/dev/null | grep -c "已恢复\|已重新加载\|已补齐\|kickstart")
+    echo "  改动/自动修复记录: $n 条"
+    [ "$n" -gt 0 ] && awk -v s="$START" '$0 >= s' "$PLOG" | grep "已恢复\|已重新加载\|已补齐\|kickstart" | tail -5
+else
+    echo "  无日志"
+fi
+echo
+echo "=== 当前状态 ==="
+grep -o "connected=[a-z]*" /tmp/sidecar-guard.status 2>/dev/null | sed 's/^/  /'
+grep -o "wakes=[0-9]*\|app_restarts=[0-9]*" /tmp/sidecar-guard.status 2>/dev/null | sed 's/^/  /'
