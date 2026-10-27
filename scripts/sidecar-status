@@ -1,0 +1,15 @@
+#!/bin/bash
+# sidecar-status —— 一眼看 iPad 副屏链路是否正常
+CFG="$HOME/.config/sidecar/config.sh"; [ -f "$CFG" ] && . "$CFG"
+TOKEN="${SIDELINKER_TOKEN:-}"; API="${SIDELINKER_API:-http://127.0.0.1:14792}"
+echo "=== 守护状态 ==="
+cat /tmp/sidecar-guard.status 2>/dev/null || echo "(守护未运行)"
+echo
+echo "=== SideLinker 实时状态 ==="
+curl -sS --max-time 6 -H "Authorization: Bearer $TOKEN" "$API/status" 2>/dev/null || echo "(API 无响应，SideLinker 可能没开)"
+echo
+echo "=== 显示器 ==="
+system_profiler SPDisplaysDataType 2>/dev/null | grep -E "Resolution:|UI Looks like:|Main Display" | head -8
+echo
+echo "=== 最近日志 ==="
+tail -6 "$HOME/Library/Logs/sidecar-guard.log" 2>/dev/null

@@ -1,0 +1,95 @@
+#!/bin/bash
+# sidecar-guard — iPad 副屏链路常驻守护（这台电脑的头号核心功能）
+#   1) 常驻检查 BetterDisplay / SideLinker 是否在跑，不在就拉起
+#   2) 每 20 秒查一次 SideLinker 连接状态，断了自动下发 /wake 重连
+#   3) 连续失败会升级：重启 SideLinker → 继续重试
+#   4) 想临时别打扰（比如要拿 iPad 干别的）：touch ~/.sidecar-pause
+#
+# 状态：/tmp/sidecar-guard.status   日志：~/Library/Logs/sidecar-guard.log
+
+LOG="$HOME/Library/Logs/sidecar-guard.log"
+STATUS="/tmp/sidecar-guard.status"
+# 配置：SIDELINKER_TOKEN 等（安装时生成的 ~/.config/sidecar/config.sh）
+CFG="$HOME/.config/sidecar/config.sh"
+[ -f "$CFG" ] && . "$CFG"
+TOKEN="${SIDELINKER_TOKEN:-}"
+if [ -z "$TOKEN" ]; then
+    echo "缺少 SIDELINKER_TOKEN，请先运行 install.sh 生成配置" >&2
+    exit 1
+fi
+API="http://127.0.0.1:14792"
+PAUSE="$HOME/.sidecar-pause"
+INTERVAL=20
+mkdir -p "$(dirname "$LOG")"
+logit() { echo "$(date '+%F %T') $*" >> "$LOG"; }
+running() { pgrep -f "/Applications/$1.app/Contents/MacOS/" >/dev/null 2>&1; }
+api() { curl -sS --max-time 8 -H "Authorization: Bearer $TOKEN" "$API/status" 2>/dev/null; }
+
+logit "=== sidecar-guard 启动 (pid $$) ==="
+FAILS=0; WAKES=0; RESTARTS=0; LAST_HEARTBEAT=$(date +%s)
+
+while true; do
+    now=$(date +%s)
+
+    # ---------- 暂停开关 ----------
+    if [ -f "$PAUSE" ]; then
+        { echo "updated=$(date '+%F %T')"; echo "state=paused"; echo "note=~/.sidecar-pause 存在，暂停自动重连"; } > "$STATUS"
+        sleep 30
+        continue
+    fi
+
+    # ---------- 依赖 App ----------
+    # 镜像源 = 自建虚拟屏 vdisplay（不再依赖 BetterDisplay）
+    if ! pgrep -f "${VDISPLAY_BIN:-$HOME/.local/bin/vdisplay}" >/dev/null 2>&1; then
+        nohup "${VDISPLAY_BIN:-$HOME/.local/bin/vdisplay}" --name "SideLinker-HD" >/tmp/vdisplay.out 2>&1 &
+        logit "虚拟屏不在，已拉起 vdisplay"; sleep 5
+    fi
+    if ! running "SideLinker Mac"; then
+        open -a "SideLinker Mac" 2>/dev/null; logit "SideLinker Mac 不在，已拉起"; sleep 10
+    fi
+
+    # ---------- 连接状态 ----------
+    s=$(api)
+    if echo "$s" | grep -q '"is_connected":true'; then
+        if [ "$FAILS" -gt 0 ]; then logit "已恢复连接（累计唤醒 $WAKES 次 / 重启 $RESTARTS 次）"; fi
+        FAILS=0
+        conn=yes
+    else
+        conn=no
+        FAILS=$((FAILS + 1))
+        # 头两次先不动（可能是正在握手），第 3 次开始唤醒
+        if [ "$FAILS" -ge 3 ]; then
+            WAKES=$((WAKES + 1))
+            logit "第 ${FAILS} 次检测未连接，下发 /wake"
+            curl -sS --max-time 10 -X POST -H "Authorization: Bearer $TOKEN" "$API/wake" >/dev/null 2>&1
+            # 连续 6 次还不成功 → 重启 SideLinker
+            if [ $((FAILS % 6)) -eq 0 ]; then
+                RESTARTS=$((RESTARTS + 1))
+                logit "连续 ${FAILS} 次失败，重启 SideLinker Mac"
+                osascript -e 'quit app "SideLinker Mac"' >/dev/null 2>&1; sleep 2
+                pkill -9 -f "SideLinker Mac.app/Contents/MacOS/SideLinker Mac" 2>/dev/null
+                open -a "SideLinker Mac" >/dev/null 2>&1; sleep 12
+            fi
+        fi
+    fi
+
+    {
+        echo "updated=$(date '+%F %T')"
+        echo "state=running"
+        echo "connected=$conn"
+        echo "fails=$FAILS"
+        echo "wakes=$WAKES"
+        echo "app_restarts=$RESTARTS"
+        echo "vdisplay=$(pgrep -f 'bin/vdisplay' >/dev/null && echo yes || echo no)"
+        echo "sidelinker=$(running 'SideLinker Mac' && echo yes || echo no)"
+        echo "api=${s:-无响应}"
+        echo "interval=${INTERVAL}s"
+        echo "boot_at=$(date -r "$(sysctl -n kern.boottime | sed -E 's/^\{ sec = ([0-9]+).*/\1/')" '+%F %T')"
+    } > "$STATUS"
+
+    if [ $((now - LAST_HEARTBEAT)) -ge 600 ]; then
+        LAST_HEARTBEAT=$now
+        logit "[心跳] ${conn} | 唤醒 ${WAKES} | 重启 ${RESTARTS}"
+    fi
+    sleep "$INTERVAL"
+done

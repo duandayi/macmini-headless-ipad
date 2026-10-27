@@ -1,0 +1,4 @@
+#!/bin/bash
+# 临时暂停自动重连（比如要拿 iPad 干别的）
+touch "$HOME/.sidecar-pause"
+echo "⏸  已暂停自动重连。恢复：sidecar-resume"

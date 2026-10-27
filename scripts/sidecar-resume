@@ -1,0 +1,3 @@
+#!/bin/bash
+rm -f "$HOME/.sidecar-pause"
+echo "▶️  已恢复自动重连（20 秒内生效）"
