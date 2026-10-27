@@ -1,0 +1,54 @@
+#!/bin/bash
+# protectd — root 级看护：本机核心功能（iPad 副屏）的所有组件归它保
+# 被保护对象：自研二进制、启动配置；任何改动 20 秒内还原
+LOG=/Library/Logs/dsh-sidecar-protect.log
+MASTER=/usr/local/libexec/dsh-sidecar
+H=/Users/duandayi
+U=duandayi
+GU=501
+logit() { echo "$(date '+%F %T') $*" >> "$LOG"; }
+
+restore_file() { # $1=master $2=target $3=mode
+    if ! /usr/bin/cmp -s "$1" "$2" 2>/dev/null; then
+        chflags nouchg "$2" 2>/dev/null; chflags noschg "$2" 2>/dev/null
+        /bin/cp -f "$1" "$2" 2>/dev/null
+        chown "$U":staff "$2" 2>/dev/null
+        chmod "$3" "$2" 2>/dev/null
+        chflags uchg "$2" 2>/dev/null
+        logit "已恢复 $2"
+    fi
+}
+
+# 二进制与脚本
+for f in vdisplay sidecarctl vmenu sidecar-guard sidecar-status sidecar-doctor sidecar-report sidecar-pause sidecar-resume; do
+    [ -f "$MASTER/$f" ] && restore_file "$MASTER/$f" "$H/.local/bin/$f" 755
+done
+# 启动配置
+for p in com.dsh.vdisplay.plist com.dsh.sidecar-guard.plist com.dsh.vmenu.plist; do
+    [ -f "$MASTER/$p" ] && restore_file "$MASTER/$p" "$H/Library/LaunchAgents/$p" 644
+done
+
+ensure_agent() { # $1=label $2=plist
+    local mark="/var/tmp/dsh-sidecar-missing-$1"
+    if /bin/launchctl print "gui/$GU/$1" >/dev/null 2>&1; then rm -f "$mark"; return; fi
+    if [ -f "$mark" ]; then
+        /bin/launchctl asuser $GU /bin/launchctl bootstrap "gui/$GU" "$2" >/dev/null 2>&1
+        logit "$1 LaunchAgent 缺失（连续两次），已重新加载"
+        rm -f "$mark"
+    else
+        touch "$mark"
+    fi
+}
+ensure_agent "com.dsh.sidecar-guard" "$H/Library/LaunchAgents/com.dsh.sidecar-guard.plist"
+ensure_agent "com.dsh.vdisplay"      "$H/Library/LaunchAgents/com.dsh.vdisplay.plist"
+ensure_agent "com.dsh.vmenu"         "$H/Library/LaunchAgents/com.dsh.vmenu.plist"
+
+# 进程不在 → 拉起
+if ! /usr/bin/pgrep -f "$H/.local/bin/sidecar-guard" >/dev/null 2>&1; then
+    /bin/launchctl asuser $GU /bin/launchctl kickstart -k "gui/$GU/com.dsh.sidecar-guard" >/dev/null 2>&1
+    logit "守护进程不在，已 kickstart"
+fi
+if ! /usr/bin/pgrep -f "$H/.local/bin/vdisplay" >/dev/null 2>&1; then
+    /bin/launchctl asuser $GU /bin/launchctl kickstart -k "gui/$GU/com.dsh.vdisplay" >/dev/null 2>&1
+    logit "虚拟屏进程不在，已 kickstart"
+fi
