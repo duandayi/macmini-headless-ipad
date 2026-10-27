@@ -102,37 +102,59 @@ static NSImage *makeColorIcon(CGFloat scale) {
     NSArray *displays = parseDisplays();
     if (displays.count == 0) {
         [menu addItem:[[NSMenuItem alloc] initWithTitle:@"找不到 displayplacer" action:nil keyEquivalent:@""]];
+        return;
     }
-    int idx = 0;
-    for (NSDictionary *d in displays) {
-        idx++;
-        BOOL isMain = [d[@"res"] isEqualToString:[displays.firstObject objectForKey:@"res"]] && idx == 1;
-        NSString *title = [NSString stringWithFormat:@"%@  %@", (idx == 1 ? @"主屏 iPad" : [NSString stringWithFormat:@"屏幕 %d", idx]),
-                           d[@"res"] ?: @"?"];
-        NSMenuItem *top = [[NSMenuItem alloc] initWithTitle:title action:nil keyEquivalent:@""];
-        NSMenu *sub = [NSMenu new];
-        // 去重：同一 res 只留 scaling:on 与 off 各一条
-        NSMutableSet *seen = [NSMutableSet set];
+    // 只处理第一块屏（iPad 主屏），其余不展示
+    NSDictionary *d = displays.firstObject;
+    NSString *curRes = d[@"res"] ?: @"";
+    BOOL curScale = [d[@"curScale"] isEqualToString:@"on"];
+    // 当前逻辑尺寸
+    NSArray *wh = [curRes componentsSeparatedByString:@"x"];
+    NSInteger curLogW = 0, curLogH = 0;
+    if (wh.count == 2) {
+        // displayplacer 的 Resolution 行给的就是逻辑尺寸，不要再除 2
+        curLogW = [wh[0] integerValue];
+        curLogH = [wh[1] integerValue];
+    }
+
+    // 只留最有用的 4 档（按面板能力挑选）
+    NSArray *preferred = @[
+        @[@"1180", @"820", @"原生 1:1，最清晰"],
+        @[@"1323", @"919", @"空间最大"],
+        @[@"1001", @"696", @"字更大"],
+        @[@"800",  @"600", @"字最大，适合远看"],
+    ];
+
+    NSMenuItem *header = [[NSMenuItem alloc] initWithTitle:[NSString stringWithFormat:@"iPad  当前 %ld×%ld", (long)curLogW, (long)curLogH]
+                                                    action:nil keyEquivalent:@""];
+    [header setEnabled:NO];
+    [menu addItem:header];
+    [menu addItem:[NSMenuItem separatorItem]];
+
+    for (NSArray *pref in preferred) {
+        NSString *w = pref[0], *h = pref[1];
         for (NSDictionary *m in d[@"modes"]) {
-            NSString *key = [NSString stringWithFormat:@"%@x%@-%d", m[@"w"], m[@"h"], [m[@"scale"] boolValue]];
-            if ([seen containsObject:key]) continue;
-            [seen addObject:key];
-            NSString *t = [NSString stringWithFormat:@"%@×%@%@", m[@"w"], m[@"h"],
-                           [m[@"scale"] boolValue] ? @"   Retina" : @"   1x"];
-            NSMenuItem *it = [[NSMenuItem alloc] initWithTitle:t action:@selector(apply:) keyEquivalent:@""];
+            if (![m[@"w"] isEqualToString:w] || ![m[@"h"] isEqualToString:h] || ![m[@"scale"] boolValue]) continue;
+            NSString *t = [NSString stringWithFormat:@"%@×%@  %@", w, h, pref[2]];
+            NSMenuItem *it = [[NSMenuItem alloc] initWithTitle:t
+                                                        action:@selector(apply:)
+                                                 keyEquivalent:@""];
             it.target = self;
-            it.representedObject = @[d[@"id"], m[@"w"], m[@"h"], m[@"scale"]];
-            [sub addItem:it];
+            it.representedObject = @[d[@"id"], w, h, @YES];
+            if (curScale && curLogW == [w integerValue] && curLogH == [h integerValue])
+                it.state = NSControlStateValueOn;
+            [menu addItem:it];
+            break;
         }
-        top.submenu = sub;
-        [menu addItem:top];
     }
+
     [menu addItem:[NSMenuItem separatorItem]];
     NSMenuItem *rf = [[NSMenuItem alloc] initWithTitle:@"重新扫描" action:@selector(refresh:) keyEquivalent:@"r"];
     rf.target = self; [menu addItem:rf];
     NSMenuItem *q = [[NSMenuItem alloc] initWithTitle:@"退出" action:@selector(quit:) keyEquivalent:@"q"];
     q.target = self; [menu addItem:q];
 }
+
 - (void)apply:(NSMenuItem *)it {
     NSArray *a = it.representedObject;
     vlog(@"点击: %@", it.title);
