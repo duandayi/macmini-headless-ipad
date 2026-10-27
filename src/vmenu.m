@@ -133,6 +133,9 @@ static NSString *currentLogical(void) {
         curLogH = [wh[1] integerValue];
     }
 
+    // 悬浮在图标上就能看到当前分辨率
+    gItem.button.toolTip = [NSString stringWithFormat:@"当前 %ld×%ld（点一下切换）",
+                            (long)curLogW, (long)curLogH];
     // 只留最有用的 4 档（按面板能力挑选）
     NSArray *preferred = @[
         @[@"1180", @"820"],
