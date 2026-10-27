@@ -120,10 +120,10 @@ static NSImage *makeColorIcon(CGFloat scale) {
 
     // 只留最有用的 4 档（按面板能力挑选）
     NSArray *preferred = @[
-        @[@"1180", @"820", @"原生 1:1，最清晰"],
-        @[@"1323", @"919", @"空间最大"],
-        @[@"1001", @"696", @"字更大"],
-        @[@"800",  @"600", @"字最大，适合远看"],
+        @[@"1180", @"820"],
+        @[@"1323", @"919"],
+        @[@"1001", @"696"],
+        @[@"800",  @"600"],
     ];
 
     CGFloat rowW = 262, rowH = 22;
@@ -132,7 +132,7 @@ static NSImage *makeColorIcon(CGFloat scale) {
         for (NSDictionary *m in d[@"modes"]) {
             if (![m[@"w"] isEqualToString:w] || ![m[@"h"] isEqualToString:h] || ![m[@"scale"] boolValue]) continue;
             BOOL isCur = (curScale && curLogW == [w integerValue] && curLogH == [h integerValue]);
-            NSString *plain = [NSString stringWithFormat:@"%@×%@   %@", w, h, pref[2]];
+            NSString *plain = [NSString stringWithFormat:@"%@×%@", w, h];
             NSMenuItem *it = [[NSMenuItem alloc] initWithTitle:plain
                                                         action:@selector(apply:)
                                                  keyEquivalent:@""];

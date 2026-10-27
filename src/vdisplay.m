@@ -1,5 +1,4 @@
-// vdisplay — 自建 macOS 虚拟显示器（MIT）
-// macOS headless + iPad(Sidecar) 场景的虚拟屏锚点。原始实现，不依赖任何商业软件。
+// vdisplay — 自建 macOS 虚拟显示器（原创实现，MIT）
 // 与 BetterDisplay 无关：只用系统私有 CGVirtualDisplay API。
 // 注意：vendorID/productID/serialNum 必须与系统里其它虚拟屏不同，否则 macOS 会拒绝创建
 //       （WindowServer: "no displayID available"）。
@@ -48,9 +47,21 @@ static id gDisplay = nil;
 
     CGVirtualDisplay *v = [[CGVirtualDisplay alloc] initWithDescriptor:d];
     if (!v) { fprintf(stderr, "创建虚拟屏失败（可能身份冲突）\n"); [NSApp terminate:nil]; return; }
-    CGVirtualDisplayMode *m = [[CGVirtualDisplayMode alloc] initWithWidth:gW height:gH refreshRate:(double)gHz];
+    // 多档模式：随航端切成别的分辨率时，镜像源要跟得上
+    NSMutableArray *modes = [NSMutableArray array];
+    NSArray *sizes = @[ @[@(gW), @(gH)], @[@1323, @919], @[@1180, @820], @[@1001, @696], @[@800, @600] ];
+    NSMutableSet *seen = [NSMutableSet set];
+    for (NSArray *wh in sizes) {
+        NSString *key = [NSString stringWithFormat:@"%@x%@", wh[0], wh[1]];
+        if ([seen containsObject:key]) continue;
+        [seen addObject:key];
+        CGVirtualDisplayMode *mm = [[CGVirtualDisplayMode alloc] initWithWidth:[wh[0] unsignedIntValue]
+                                                                      height:[wh[1] unsignedIntValue]
+                                                                 refreshRate:(double)gHz];
+        if (mm) [modes addObject:mm];
+    }
     CGVirtualDisplaySettings *s = [CGVirtualDisplaySettings new];
-    s.hiDPI = 1; s.modes = @[m];
+    s.hiDPI = 1; s.modes = modes;
     if (![v applySettings:s]) { fprintf(stderr, "applySettings 失败\n"); [NSApp terminate:nil]; return; }
     gDisplay = v;
     printf("OK name=%s panel=%ux%u logical=%ux%u hz=%u hidpi=1\n",
