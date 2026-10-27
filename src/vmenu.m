@@ -176,6 +176,14 @@ static NSString *currentLogical(void) {
     }
 
     [menu addItem:[NSMenuItem separatorItem]];
+    BOOL paused = [[NSFileManager defaultManager] fileExistsAtPath:
+                   [NSHomeDirectory() stringByAppendingPathComponent:@".sidecar-pause"]];
+    NSMenuItem *pauseItem = [[NSMenuItem alloc] initWithTitle:(paused ? @"恢复自动重连" : @"暂停自动重连")
+                                                       action:@selector(togglePause:)
+                                                keyEquivalent:@"p"];
+    pauseItem.target = self;
+    [menu addItem:pauseItem];
+
     NSMenuItem *rf = [[NSMenuItem alloc] initWithTitle:@"重新扫描" action:@selector(refresh:) keyEquivalent:@"r"];
     rf.target = self; [menu addItem:rf];
     NSMenuItem *q = [[NSMenuItem alloc] initWithTitle:@"退出" action:@selector(quit:) keyEquivalent:@"q"];
@@ -198,6 +206,15 @@ static NSString *currentLogical(void) {
         if (i == 1) { vlog(@"未生效(%@ != %@)，重试一次", now, want); runCmd(@"/bin/bash", @[@"-lc", cmd]); }
     }
     vlog(@"最终状态: %@ (期望 %@)", currentLogical(), want);
+}
+- (void)togglePause:(id)sender {
+    NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@".sidecar-pause"];
+    NSFileManager *fm = [NSFileManager defaultManager];
+    if ([fm fileExistsAtPath:path]) {
+        [fm removeItemAtPath:path error:nil];
+    } else {
+        [fm createFileAtPath:path contents:nil attributes:nil];
+    }
 }
 - (void)refresh:(id)sender { }
 - (void)quit:(id)sender { [NSApp terminate:nil]; }
