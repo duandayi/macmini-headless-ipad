@@ -63,6 +63,21 @@ static NSArray *parseDisplays(void) {
     return displays;
 }
 
+
+// ── 彩色经典 Mac 图标 ───────────────────────────────────────────────
+// 位图内嵌（72×64 @4x，原始 18×16pt），按参考图比例与实测配色绘制
+static NSImage *makeColorIcon(CGFloat scale) {
+    static NSString *b64 = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        b64 = @"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";
+    });
+    NSData *data = [[NSData alloc] initWithBase64EncodedString:b64 options:0];
+    if (!data) return nil;
+    NSImage *img = [[NSImage alloc] initWithData:data];
+    [img setSize:NSMakeSize(18, 16)];
+    return img;
+}
 @interface VM : NSObject <NSMenuDelegate>
 @end
 @implementation VM
@@ -112,34 +127,27 @@ static NSArray *parseDisplays(void) {
 - (void)quit:(id)sender { [NSApp terminate:nil]; }
 @end
 
-int main(void) {
+int main(int argc, const char **argv) {
     @autoreleasepool {
+        if (argc > 2 && strcmp(argv[1], "--export") == 0) {
+            NSImage *ic = makeColorIcon(8.0);   // 导出用 8 倍，便于放大查看
+            NSBitmapImageRep *rep = [[NSBitmapImageRep alloc] initWithData:[ic TIFFRepresentation]];
+            NSData *png = [rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
+            [png writeToFile:[NSString stringWithUTF8String:argv[2]] atomically:YES];
+            printf("exported %s\n", argv[2]);
+            return 0;
+        }
         gDisplayplacer = [NSHomeDirectory() stringByAppendingPathComponent:@".local/bin/displayplacer"];
         if (![[NSFileManager defaultManager] isExecutableFileAtPath:gDisplayplacer]) gDisplayplacer = @"/opt/homebrew/bin/displayplacer";
         NSApplication *app = [NSApplication sharedApplication];
         [app setActivationPolicy:NSApplicationActivationPolicyAccessory];
         gItem = [[NSStatusBar systemStatusBar] statusItemWithLength:NSVariableStatusItemLength];
 
-        // 图标：手绘显示器轮廓（无支架下垂），与相邻状态栏图标同高、同视觉重心
-        NSSize canvasSize = NSMakeSize(18, 16);
-        NSImage *icon = [[NSImage alloc] initWithSize:canvasSize];
-        [icon lockFocus];
-        [[NSColor blackColor] setStroke];
-        // 屏幕
-        NSBezierPath *screen = [NSBezierPath bezierPathWithRoundedRect:NSMakeRect(1.7, 3.5, 14.6, 9.6)
-                                                               xRadius:2.2 yRadius:2.2];
-        [screen setLineWidth:1.4];
-        [screen stroke];
-        // 底座
-        NSBezierPath *base = [NSBezierPath bezierPathWithRoundedRect:NSMakeRect(6.9, 2.0, 4.2, 1.3)
-                                                             xRadius:0.7 yRadius:0.7];
-        [base setLineWidth:1.1];
-        [base stroke];
-        [icon unlockFocus];
-        [icon setTemplate:YES];
+        // 彩色经典 Mac 图标（非 template，保留颜色）
+        NSImage *icon = makeColorIcon(4.0);
         gItem.button.image = icon;
         gItem.button.imagePosition = NSImageOnly;
-        gItem.button.imageScaling = NSImageScaleNone;
+        gItem.button.imageScaling = NSImageScaleProportionallyDown;
         gItem.button.toolTip = @"分辨率（点一下切换）";
         NSMenu *menu = [NSMenu new];
         VM *vm = [VM new];
