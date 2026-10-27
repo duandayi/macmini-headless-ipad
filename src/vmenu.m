@@ -125,8 +125,18 @@ static NSImage *makeColorIcon(CGFloat scale) {
         @[@"800",  @"600", @"字最大，适合远看"],
     ];
 
-    NSMenuItem *header = [[NSMenuItem alloc] initWithTitle:[NSString stringWithFormat:@"iPad  当前 %ld×%ld", (long)curLogW, (long)curLogH]
-                                                    action:nil keyEquivalent:@""];
+    // 找出当前档对应的说明
+    NSString *curLabel = @"";
+    for (NSArray *pref in @[ @[@"1180", @"820", @"原生 1:1，最清晰"],
+                             @[@"1323", @"919", @"空间最大"],
+                             @[@"1001", @"696", @"字更大"],
+                             @[@"800",  @"600", @"字最大，适合远看"] ]) {
+        if (curLogW == [pref[0] integerValue] && curLogH == [pref[1] integerValue]) { curLabel = pref[2]; break; }
+    }
+    NSString *hdr = curLabel.length
+        ? [NSString stringWithFormat:@"当前：%ld×%ld · %@", (long)curLogW, (long)curLogH, curLabel]
+        : [NSString stringWithFormat:@"当前：%ld×%ld", (long)curLogW, (long)curLogH];
+    NSMenuItem *header = [[NSMenuItem alloc] initWithTitle:hdr action:nil keyEquivalent:@""];
     [header setEnabled:NO];
     [menu addItem:header];
     [menu addItem:[NSMenuItem separatorItem]];
@@ -135,14 +145,16 @@ static NSImage *makeColorIcon(CGFloat scale) {
         NSString *w = pref[0], *h = pref[1];
         for (NSDictionary *m in d[@"modes"]) {
             if (![m[@"w"] isEqualToString:w] || ![m[@"h"] isEqualToString:h] || ![m[@"scale"] boolValue]) continue;
-            NSString *t = [NSString stringWithFormat:@"%@×%@  %@", w, h, pref[2]];
+            BOOL isCur = (curScale && curLogW == [w integerValue] && curLogH == [h integerValue]);
+            NSString *t = isCur
+                ? [NSString stringWithFormat:@"%@×%@  %@   ← 当前", w, h, pref[2]]
+                : [NSString stringWithFormat:@"%@×%@  %@", w, h, pref[2]];
             NSMenuItem *it = [[NSMenuItem alloc] initWithTitle:t
                                                         action:@selector(apply:)
                                                  keyEquivalent:@""];
             it.target = self;
             it.representedObject = @[d[@"id"], w, h, @YES];
-            if (curScale && curLogW == [w integerValue] && curLogH == [h integerValue])
-                it.state = NSControlStateValueOn;
+            if (isCur) it.state = NSControlStateValueOn;
             [menu addItem:it];
             break;
         }
