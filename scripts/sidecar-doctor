@@ -1,0 +1,81 @@
+#!/bin/bash
+# sidecar-doctor —— 环境自检：一条命令告诉你"哪里不符合"
+# 用法：sidecar-doctor
+CFG="$HOME/.config/sidecar/config.sh"; [ -f "$CFG" ] && . "$CFG"
+TOKEN="${SIDELINKER_TOKEN:-}"; API="${SIDELINKER_API:-http://127.0.0.1:14792}"
+VD="${VDISPLAY_NAME:-SideLinker-HD}"
+PREFIX="${LABEL_PREFIX:-com.example}"
+
+pass=0; warn=0; fail=0
+ok()   { printf "  \033[32m✔\033[0m %s\n" "$*"; pass=$((pass+1)); }
+warnf(){ printf "  \033[33m▲\033[0m %s\n" "$*"; warn=$((warn+1)); }
+bad()  { printf "  \033[31m✘\033[0m %s\n" "$*"; fail=$((fail+1)); }
+
+echo "== macOS 与硬件 =="
+osv=$(sw_vers -productVersion); echo "  版本 $osv"
+case "$osv" in
+  2[6-9]*|3*) ok "系统版本在实测范围（macOS 26+）" ;;
+  *) warnf "本项目只在 macOS 26/27 上验证过，$osv 可能不兼容" ;;
+esac
+command -v clang >/dev/null && ok "编译工具 clang 可用" || bad "缺 clang：xcode-select --install"
+
+echo "== 无头前提（最常翻车） =="
+au=$(defaults read /Library/Preferences/com.apple.loginwindow autoLoginUser 2>/dev/null)
+[ -n "$au" ] && ok "自动登录已开启（用户 $au）" || bad "未开启自动登录：无头机器会停在登录界面，iPad 永久黑屏"
+[ -f /etc/kcpassword ] && ok "登录密码已写入 /etc/kcpassword" || warnf "缺 /etc/kcpassword，自动登录可能不生效"
+fv=$(fdesetup status 2>/dev/null | tr '\n' ' ')
+case "$fv" in
+  *"is Off"*) ok "FileVault 已关闭" ;;
+  *) bad "FileVault 开启会阻止自动登录：$fv" ;;
+esac
+li=$(osascript -e 'tell application "System Events" to get the name of every login item' 2>/dev/null)
+case "$li" in
+  *SideLinker*) ok "登录项含 SideLinker Mac" ;;
+  *) bad "登录项里没有 SideLinker Mac（系统设置 → 通用 → 登录项）" ;;
+esac
+
+echo "== 常驻组件 =="
+pgrep -f "SideLinker Mac.app/Contents/MacOS" >/dev/null && ok "SideLinker 正在运行" || bad "SideLinker 没在跑"
+pgrep -f "bin/vdisplay" >/dev/null && ok "虚拟屏进程在跑" || bad "vdisplay 没在跑（launchd 应该会拉起；查 /tmp/vdisplay.err）"
+launchctl print "gui/$(id -u)/$PREFIX.vdisplay" >/dev/null 2>&1 \
+  && ok "vdisplay 的 launchd 任务已加载" || warnf "vdisplay 的 launchd 任务未加载"
+launchctl print "gui/$(id -u)/$PREFIX.sidecar-guard" >/dev/null 2>&1 \
+  && ok "sidecar-guard 的 launchd 任务已加载" || warnf "sidecar-guard 的 launchd 任务未加载"
+
+echo "== 虚拟屏与显示器 =="
+if system_profiler SPDisplaysDataType 2>/dev/null | grep -q "$VD"; then
+  ok "虚拟屏 $VD 存在"
+else
+  bad "没找到名为 $VD 的虚拟屏"
+fi
+pgrep -f "BetterDisplay.app/Contents/MacOS" >/dev/null && warnf "BetterDisplay 也在运行 —— 可能与自建虚拟屏冲突（身份/名字重复），建议退出它" || ok "没有其它虚拟屏软件在跑"
+disp=$(system_profiler SPDisplaysDataType 2>/dev/null | sed -n "/$VD/,/^$/p")
+res=$(echo "$disp" | grep "Resolution:" | head -1 | awk '{print $2}')
+ui=$(echo "$disp" | grep "UI Looks like:" | head -1 | awk '{print $4}')
+if [ -n "$res" ] && [ -n "$ui" ]; then
+  rw=${res%x*}; uw=${ui%x*}
+  if [ $((rw)) -eq $((uw * 2)) ] 2>/dev/null; then
+    ok "虚拟屏是 HiDPI 2x（面板 $res / 逻辑 $ui）"
+  else
+    warnf "虚拟屏不是 2x（面板 $res / 逻辑 $ui），字会发虚：displayplacer 设 scaling:on"
+  fi
+fi
+system_profiler SPDisplaysDataType 2>/dev/null | grep -q "Sidecar Display" && ok "Sidecar 显示器已注册" || warnf "没看到 Sidecar Display（iPad 可能未连接）"
+
+echo "== SideLinker API =="
+if [ -z "$TOKEN" ]; then
+  bad "没有配置 SIDELINKER_TOKEN（~/.config/sidecar/config.sh）"
+else
+  st=$(curl -sS --max-time 6 -H "Authorization: Bearer $TOKEN" "$API/status" 2>/dev/null)
+  if [ -n "$st" ]; then
+    echo "$st" | grep -q '"is_connected":true' && ok "随航已连接" || bad "随航未连接（sidecar-resume 后等 20 秒）"
+    echo "$st" | grep -o '"connection_type":"[a-z]*"' | head -1
+  else
+    bad "SideLinker API 无响应（127.0.0.1:14792）"
+  fi
+fi
+
+echo
+echo "== 结论：$pass 项通过 / $warn 项提醒 / $fail 项失败 =="
+[ $fail -eq 0 ] || echo "先修 ✘ 项；完整排障见 README"
+exit $([ $fail -eq 0 ] && echo 0 || echo 1)

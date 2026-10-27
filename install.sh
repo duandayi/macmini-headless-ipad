@@ -24,10 +24,10 @@ clang -fobjc-arc -framework Foundation -framework AppKit \
 echo "    已安装: $BIN/vdisplay"
 
 say "3/6 安装脚本"
-for f in sidecar-guard sidecar-status sidecar-pause sidecar-resume; do
+for f in sidecar-guard sidecar-status sidecar-pause sidecar-resume sidecar-doctor; do
     install -m 755 "$ROOT/scripts/$f" "$BIN/$f"
 done
-echo "    已安装 4 个命令到 $BIN"
+echo "    已安装 5 个命令到 $BIN"
 
 say "4/6 生成配置"
 if [ ! -f "$CFG/config.sh" ]; then
@@ -37,6 +37,7 @@ if [ ! -f "$CFG/config.sh" ]; then
 SIDELINKER_API="http://127.0.0.1:14792"
 SIDELINKER_TOKEN="${TOKEN:-}"
 VDISPLAY_NAME="SideLinker-HD"
+LABEL_PREFIX="$PREFIX"
 LOGICAL_W=1323
 LOGICAL_H=919
 CFGEOF
@@ -60,6 +61,11 @@ gen() {  # $1=模板  $2=输出名  $3=标签
 gen "$ROOT/launchd/vdisplay.plist.template"      "$PREFIX.vdisplay.plist"      "$PREFIX.vdisplay"
 gen "$ROOT/launchd/sidecar-guard.plist.template" "$PREFIX.sidecar-guard.plist" "$PREFIX.sidecar-guard"
 
+if [ "${SKIP_LAUNCHD:-0}" = "1" ]; then
+    say "6/6 跳过 launchd（SKIP_LAUNCHD=1，仅用于测试）"
+    echo "SKIP_LAUNCHD_OK"; exit 0
+fi
+
 say "6/6 加载开机自启"
 launchctl bootout "gui/$(id -u)/$PREFIX.vdisplay" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/$PREFIX.sidecar-guard" 2>/dev/null || true
@@ -77,6 +83,7 @@ cat <<'TIP'
   4. 重新登录或重启后，检查：sidecar-status
 
 常用命令：
+  sidecar-doctor    环境自检（装机后先跑这个）
   sidecar-status    看链路状态
   sidecar-pause     暂停自动重连
   sidecar-resume    恢复自动重连

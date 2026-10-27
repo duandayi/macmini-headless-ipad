@@ -70,6 +70,7 @@ cd macmini-headless-ipad
 ## 常用命令
 
 ```bash
+sidecar-doctor     # 环境自检：一条命令告诉你哪里不符合（装完先跑这个）
 sidecar-status     # 链路状态（守护 + SideLinker + 显示器 + 日志）
 sidecar-pause      # 临时暂停自动重连（要拿 iPad 干别的时用）
 sidecar-resume     # 恢复自动重连
@@ -95,6 +96,16 @@ launchctl kickstart -k gui/$(id -u)/com.example.vdisplay
 ---
 
 ## 排障
+
+### 先跑自检
+
+```bash
+sidecar-doctor
+```
+
+它会逐项检查：系统版本、自动登录、FileVault、登录项、两个常驻组件、虚拟屏是否 HiDPI 2x、
+是否有别的虚拟屏软件冲突、SideLinker API 是否连通，最后给出「通过/提醒/失败」计数。
+大部分问题看输出就能定位。
 
 ### 开机后 iPad 黑屏
 按顺序查：
