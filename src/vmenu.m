@@ -95,6 +95,21 @@ static NSImage *makeColorIcon(CGFloat scale) {
     return img;
 }
 
+
+// 读取第一块屏的当前逻辑分辨率（形如 @"1180x820"）
+static NSString *currentLogical(void) {
+    NSString *out = runCmd(@"/bin/bash", @[@"-lc",
+        [NSString stringWithFormat:@"%@ list 2>/dev/null | head -6", gDisplayplacer]]);
+    for (NSString *raw in [out componentsSeparatedByString:@"\n"]) {
+        NSString *line = [raw stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+        if ([line hasPrefix:@"Resolution:"]) {
+            return [[line substringFromIndex:11]
+                    stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+        }
+    }
+    return @"";
+}
+
 @interface VM : NSObject <NSMenuDelegate>
 @end
 @implementation VM
@@ -169,9 +184,17 @@ static NSImage *makeColorIcon(CGFloat scale) {
     vlog(@"点击: %@", it.title);
     NSString *cmd = [NSString stringWithFormat:@"%@ \"id:%@ res:%@x%@ hz:60 color_depth:4 scaling:%@\"",
                      gDisplayplacer, a[0], a[1], a[2], [a[3] boolValue] ? @"on" : @"off"];
+    NSString *want = [NSString stringWithFormat:@"%@x%@", a[1], a[2]];
     vlog(@"执行: %@", cmd);
-    NSString *o = runCmd(@"/bin/bash", @[@"-lc", cmd]);
-    vlog(@"输出: %@", o.length ? o : @"(空)");
+    runCmd(@"/bin/bash", @[@"-lc", cmd]);
+    // 校验：没切过去就再试一次（切换偶发被系统回滚）
+    for (int i = 0; i < 3; i++) {
+        usleep(350000);
+        NSString *now = currentLogical();
+        if ([now isEqualToString:want]) { vlog(@"生效: %@", now); return; }
+        if (i == 1) { vlog(@"未生效(%@ != %@)，重试一次", now, want); runCmd(@"/bin/bash", @[@"-lc", cmd]); }
+    }
+    vlog(@"最终状态: %@ (期望 %@)", currentLogical(), want);
 }
 - (void)refresh:(id)sender { }
 - (void)quit:(id)sender { [NSApp terminate:nil]; }
