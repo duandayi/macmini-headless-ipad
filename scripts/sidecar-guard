@@ -1,5 +1,5 @@
 #!/bin/bash
-# sidecar-guard v16 — 私有 API 直连 + USB 优先 + 近场感应
+# sidecar-guard v17 — 私有 API 直连 + USB 优先 + 近场感应
 #   触发顺序：USB 插上（最快最稳） > 蓝牙近场（iPad 在附近） > 定时兜底
 LOG="$HOME/Library/Logs/sidecar-guard.log"
 STATUS="/tmp/sidecar-guard.status"
@@ -38,7 +38,7 @@ ipad_rssi() {
 
 BT=$(sysctl -n kern.boottime | sed -E 's/^\{ sec = ([0-9]+).*/\1/')
 UPTIME=$(( $(date +%s) - BT ))
-logit "=== sidecar-guard v16 启动 (pid $$, 开机后 ${UPTIME}s) ==="
+logit "=== sidecar-guard v17 启动 (pid $$, 开机后 ${UPTIME}s) ==="
 FAILS=0; CONNECTS=0; TICKN=0; LAST_HB=$(date +%s); LAST_TRIGGER=""
 BACKOFF=5          # 失败退避（秒），逐次翻倍，上限 120
 NEAR=0             # 连续检测到 iPad 很近的次数
@@ -50,14 +50,14 @@ BT2=$BT
 while true; do
     now=$(date +%s); TICKN=$((TICKN+1))
     if [ -f "$PAUSE" ]; then
-        # 暂停最多 30 分钟，避免误点菜单后永远不恢复连接
+        # 暂停最多 10 分钟，避免误点菜单后永远不恢复连接
         age=$(( now - $(stat -f %m "$PAUSE" 2>/dev/null || echo "$now") ))
-        if [ "$age" -gt 1800 ]; then
+        if [ "$age" -gt 600 ]; then
             rm -f "$PAUSE"
-            logit "暂停已超过 30 分钟（${age}s），自动恢复自动重连"
+            logit "暂停已超过 10 分钟（${age}s），自动恢复自动重连"
         else
             printf "updated=%s\nstate=paused\nauto_resume_in=%ss\n" \
-                "$(date '+%F %T')" $((1800 - age)) > "$STATUS"
+                "$(date '+%F %T')" $((600 - age)) > "$STATUS"
             sleep 15; continue
         fi
     fi
