@@ -28,14 +28,11 @@ case "$fv" in
   *"is Off"*) ok "FileVault 已关闭" ;;
   *) bad "FileVault 开启会阻止自动登录：$fv" ;;
 esac
-li=$(osascript -e 'tell application "System Events" to get the name of every login item' 2>/dev/null)
-case "$li" in
-  *SideLinker*) ok "登录项含 SideLinker Mac" ;;
-  *) bad "登录项里没有 SideLinker Mac（系统设置 → 通用 → 登录项）" ;;
-esac
+# 本方案不依赖登录项：开机由 LaunchAgent 拉起，登录项空着也没关系
+ok "不依赖登录项（LaunchAgent 负责开机自启）"
 
 echo "== 常驻组件 =="
-pgrep -f "SideLinker Mac.app/Contents/MacOS" >/dev/null && ok "SideLinker 正在运行" || bad "SideLinker 没在跑"
+[ -x "$HOME/.local/bin/sidecarctl" ] && ok "sidecarctl 已安装" || bad "缺少 sidecarctl（随航连接工具）"
 pgrep -f "bin/vdisplay" >/dev/null && ok "虚拟屏进程在跑" || bad "vdisplay 没在跑（launchd 应该会拉起；查 /tmp/vdisplay.err）"
 launchctl print "gui/$(id -u)/$PREFIX.vdisplay" >/dev/null 2>&1 \
   && ok "vdisplay 的 launchd 任务已加载" || warnf "vdisplay 的 launchd 任务未加载"
@@ -62,17 +59,15 @@ if [ -n "$res" ] && [ -n "$ui" ]; then
 fi
 system_profiler SPDisplaysDataType 2>/dev/null | grep -q "Sidecar Display" && ok "Sidecar 显示器已注册" || warnf "没看到 Sidecar Display（iPad 可能未连接）"
 
-echo "== SideLinker API =="
-if [ -z "$TOKEN" ]; then
-  bad "没有配置 SIDELINKER_TOKEN（~/.config/sidecar/config.sh）"
+echo "== 随航连接（SidecarCore 私有 API）=="
+if [ -x "$HOME/.local/bin/sidecarctl" ]; then
+  out=$("$HOME/.local/bin/sidecarctl" list 2>/dev/null)
+  devs=$(echo "$out" | awk '/可用设备/{gsub(/：|:/,"");print $2;exit}')
+  conn=$(echo "$out" | awk '/已连接/{gsub(/：|:/,"");print $2;exit}')
+  [ "${devs:-0}" -ge 1 ] 2>/dev/null && ok "能发现同 iCloud 的设备（${devs} 台）" || bad "没有发现任何可连接设备"
+  [ "${conn:-0}" -ge 1 ] 2>/dev/null && ok "随航已连接" || bad "随航未连接（守护会在 5～30 秒内重试）"
 else
-  st=$(curl -sS --max-time 6 -H "Authorization: Bearer $TOKEN" "$API/status" 2>/dev/null)
-  if [ -n "$st" ]; then
-    echo "$st" | grep -q '"is_connected":true' && ok "随航已连接" || bad "随航未连接（sidecar-resume 后等 20 秒）"
-    echo "$st" | grep -o '"connection_type":"[a-z]*"' | head -1
-  else
-    bad "SideLinker API 无响应（127.0.0.1:14792）"
-  fi
+  bad "缺少 sidecarctl"
 fi
 
 echo

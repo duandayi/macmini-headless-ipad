@@ -22,21 +22,22 @@ def ts(line):
 cur = None
 for ln in lines:
     if ln < start: continue
-    if "=== sidecar-guard 启动" in ln:
+    m = re.search(r"开机后 (\d+)s", ln)
+    if re.search(r"sidecar-guard (v\d+ )?启动", ln) and (m is None or int(m.group(1)) <= 600):
         cur = {"boot": ts(ln), "conn": None, "wake": 0, "heal": 0}
     elif cur:
         if "已恢复连接" in ln and not cur["conn"]:
             cur["conn"] = ts(ln)
-        if "下发 /wake" in ln: cur["wake"] += 1
-        if "重启 SideLinker" in ln: cur["heal"] += 1
-        if "=== sidecar-guard 启动" not in ln and cur["conn"]:
+        if "sidecarctl connect" in ln: cur["wake"] += 1
+        if "[USB]" in ln: cur["usb"] = (cur.get("usb") or 0) + 1
+        if not re.search(r"sidecar-guard (v\d+ )?启动", ln) and cur["conn"]:
             rows.append(cur); cur = None
-if cur: rows.append(cur)
-print(f"{'开机':<20}{'守护启动':<10}{'连上耗时':<10}{'唤醒次数':<9}{'重启App'}")
+if cur and cur["conn"]: rows.append(cur)
+print(f"{'开机':<20}{'连上耗时':<10}{'重连次数'}")
 for r in rows:
     b = r["boot"]; c = r["conn"]
     took = f'{(c-b).seconds}s' if c else '未连上'
-    print(f"{b:%Y-%m-%d %H:%M:%S}  {'':<8}{took:<10}{r['wake']:<9}{r['heal']}")
+    print(f"{b:%Y-%m-%d %H:%M:%S}  {took:<10}{r['wake']}")
 if not rows:
     print("（暂无记录，跑一次开机后就会有）")
 PYEOF
@@ -52,4 +53,4 @@ fi
 echo
 echo "=== 当前状态 ==="
 grep -o "connected=[a-z]*" /tmp/sidecar-guard.status 2>/dev/null | sed 's/^/  /'
-grep -o "wakes=[0-9]*\|app_restarts=[0-9]*" /tmp/sidecar-guard.status 2>/dev/null | sed 's/^/  /'
+grep -o "connects=[0-9]*\|usb_ipad=[a-z]*\|last_trigger=.*" /tmp/sidecar-guard.status 2>/dev/null | sed 's/^/  /'

@@ -23,6 +23,10 @@ clang -fobjc-arc -framework Foundation -framework AppKit \
       -o "$BIN/vdisplay" "$ROOT/src/vdisplay.m"
 echo "    已安装: $BIN/vdisplay"
 
+say "2a/6 编译随航连接工具 sidecarctl（调用系统私有 SidecarCore）"
+clang -fobjc-arc -framework Foundation -O2 -o "$BIN/sidecarctl" "$ROOT/src/sidecarctl.m"
+echo "    已安装: $BIN/sidecarctl"
+
 say "2b/6 编译菜单栏分辨率切换 vmenu（可选，需要 displayplacer）"
 if [ -x "$BIN/displayplacer" ] || command -v displayplacer >/dev/null; then
     clang -fobjc-arc -framework Foundation -framework AppKit \
@@ -87,10 +91,9 @@ cat <<'TIP'
 安装完成 ✅
 
 接下来还需要（一次性）：
-  1. 在 SideLinker Mac 里把「虚拟屏名称」设为 SideLinker-HD，目标设为你的 iPad
-  2. 把 SideLinker Mac 加进「登录项」（系统设置 → 通用 → 登录项）
-  3. 系统设置 → 显示器：让 iPad(Sidecar) 镜像到 SideLinker-HD
-  4. 重新登录或重启后，检查：sidecar-status
+  1. iPad 与 Mac 登录同一个 Apple ID，开蓝牙 + Wi-Fi（iPad 端无需安装任何 App）
+  2. 系统设置 → 显示器：让 iPad(Sidecar) 镜像到 SideLinker-HD（只需配一次，之后会记住）
+  3. 重新登录或重启后，检查：sidecar-status
 
 常用命令：
   sidecar-doctor    环境自检（装机后先跑这个）
