@@ -12,14 +12,28 @@
 static NSStatusItem *gItem;
 static NSString *gDisplayplacer;
 
+static void vlog(NSString *fmt, ...) {
+    va_list a; va_start(a, fmt);
+    NSString *m = [[NSString alloc] initWithFormat:fmt arguments:a];
+    va_end(a);
+    NSString *line = [NSString stringWithFormat:@"%@ %@\n", [NSDate date], m];
+    NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:@"/tmp/vmenu.log"];
+    if (!fh) [[NSFileManager defaultManager] createFileAtPath:@"/tmp/vmenu.log" contents:nil attributes:nil];
+    fh = [NSFileHandle fileHandleForWritingAtPath:@"/tmp/vmenu.log"];
+    [fh seekToEndOfFile];
+    [fh writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
+    [fh closeFile];
+}
+
 static NSString *runCmd(NSString *path, NSArray *args) {
     NSTask *t = [NSTask new];
     t.launchPath = path;
     t.arguments = args;
     NSPipe *p = [NSPipe pipe];
     t.standardOutput = p;
-    t.standardError = [NSFileHandle fileHandleWithNullDevice];
-    @try { [t launch]; [t waitUntilExit]; } @catch (NSException *e) { return @""; }
+    t.standardError = p;
+    @try { [t launch]; [t waitUntilExit]; }
+    @catch (NSException *e) { vlog(@"launch 失败 %@: %@", path, e.reason); return @""; }
     NSData *d = [[p fileHandleForReading] readDataToEndOfFile];
     return [[NSString alloc] initWithData:d encoding:NSUTF8StringEncoding] ?: @"";
 }
@@ -34,11 +48,13 @@ static NSArray *parseDisplays(void) {
         NSString *line = [raw stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
         if ([line hasPrefix:@"Persistent screen id:"]) {
             if (cur) [displays addObject:cur];
-            cur = [@{ @"id": [line substringFromIndex:21],
+            NSString *sid = [[line substringFromIndex:21]
+                             stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+            cur = [@{ @"id": sid,
                       @"modes": [NSMutableArray array] } mutableCopy];
         } else if (cur) {
             if ([line hasPrefix:@"Resolution:"]) {
-                cur[@"res"] = [line substringFromIndex:11];
+                cur[@"res"] = [[line substringFromIndex:11] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
             } else if ([line hasPrefix:@"Type:"]) {
                 cur[@"type"] = [line substringFromIndex:5];
             } else if ([line hasPrefix:@"mode "]) {
@@ -55,7 +71,7 @@ static NSArray *parseDisplays(void) {
                         [(NSMutableArray *)cur[@"modes"] addObject:@{@"w": wh[0], @"h": wh[1], @"scale": @(scale)}];
                 }
             } else if ([line hasPrefix:@"Scaling:"]) {
-                cur[@"curScale"] = [line substringFromIndex:8];
+                cur[@"curScale"] = [[line substringFromIndex:8] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
             }
         }
     }
@@ -119,9 +135,12 @@ static NSImage *makeColorIcon(CGFloat scale) {
 }
 - (void)apply:(NSMenuItem *)it {
     NSArray *a = it.representedObject;
+    vlog(@"点击: %@", it.title);
     NSString *cmd = [NSString stringWithFormat:@"%@ \"id:%@ res:%@x%@ hz:60 color_depth:4 scaling:%@\"",
                      gDisplayplacer, a[0], a[1], a[2], [a[3] boolValue] ? @"on" : @"off"];
-    runCmd(@"/bin/bash", @[@"-lc", cmd]);
+    vlog(@"执行: %@", cmd);
+    NSString *o = runCmd(@"/bin/bash", @[@"-lc", cmd]);
+    vlog(@"输出: %@", o.length ? o : @"(空)");
 }
 - (void)refresh:(id)sender { }
 - (void)quit:(id)sender { [NSApp terminate:nil]; }
