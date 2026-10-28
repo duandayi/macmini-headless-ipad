@@ -62,7 +62,7 @@ system_profiler SPDisplaysDataType | grep -A4 "Sidecar Display"
 
 ```bash
 pgrep -lf vdisplay            # 必须有 1 个进程
-system_profiler SPDisplaysDataType | grep -A2 "SideLinker-HD"
+system_profiler SPDisplaysDataType | grep -A2 "iPadLink-HD"
 ```
 
 ### 3. 绑定设备（强烈建议）

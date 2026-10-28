@@ -44,15 +44,13 @@ echo "    已安装 6 个命令到 $BIN"
 
 say "4/6 生成配置"
 if [ ! -f "$CFG/config.sh" ]; then
-    printf "请输入 SideLinker 的本地 API Token（可先留空，稍后手填）: "
-    read -r TOKEN || true
     cat > "$CFG/config.sh" <<CFGEOF
-SIDELINKER_API="http://127.0.0.1:14792"
-SIDELINKER_TOKEN="${TOKEN:-}"
-VDISPLAY_NAME="SideLinker-HD"
+# 虚拟屏名称（第一次连接后，系统会记住这个镜像关系，之后不要随意改）
+VDISPLAY_NAME="iPadLink-HD"
 LABEL_PREFIX="$PREFIX"
-LOGICAL_W=1323
-LOGICAL_H=919
+# 绑定设备 UUID：只连这一台，别人的 iPad 一律拒绝。
+# 装完运行 \`sidecarctl list\` 复制 id= 后面的 UUID 填进来
+SIDECAR_DEVICE_ID=""
 CFGEOF
     chmod 600 "$CFG/config.sh"
     echo "    已写入 $CFG/config.sh（权限 600）"
@@ -60,11 +58,16 @@ else
     echo "    配置已存在，跳过"
 fi
 
+# 读取配置里的虚拟屏名
+# shellcheck disable=SC1090
+[ -f "$CFG/config.sh" ] && . "$CFG/config.sh"
+VDNAME="${VDISPLAY_NAME:-iPadLink-HD}"
+
 say "5/6 生成 launchd 配置"
 gen() {  # $1=模板  $2=输出名  $3=标签
     sed -e "s|__HOME__|$HOME|g" \
         -e "s|__LABEL_PREFIX__|$PREFIX|g" \
-        -e "s|__VDISPLAY_NAME__|SideLinker-HD|g" \
+        -e "s|__VDISPLAY_NAME__|$VDNAME|g" \
         -e "s|__LOGICAL_W__|1323|g" \
         -e "s|__LOGICAL_H__|919|g" \
         "$1" > "$LA/$2"
@@ -92,7 +95,7 @@ cat <<'TIP'
 
 接下来还需要（一次性）：
   1. iPad 与 Mac 登录同一个 Apple ID，开蓝牙 + Wi-Fi（iPad 端无需安装任何 App）
-  2. 系统设置 → 显示器：让 iPad(Sidecar) 镜像到 SideLinker-HD（只需配一次，之后会记住）
+  2. 系统设置 → 显示器：让 iPad(Sidecar) 镜像到 iPadLink-HD（只需配一次，之后会记住）
   3. 重新登录或重启后，检查：sidecar-status
 
 常用命令：

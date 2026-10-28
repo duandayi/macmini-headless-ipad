@@ -1,5 +1,5 @@
 #!/bin/bash
-# 卸载：停掉自启并清理文件（不会动 SideLinker）
+# 卸载：停掉自启并清理本项目的组件（不影响系统与其它软件）
 set -uo pipefail
 PREFIX="${PREFIX:-com.example}"
 LA="$HOME/Library/LaunchAgents"

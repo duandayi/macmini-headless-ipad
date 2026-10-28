@@ -51,7 +51,7 @@
 ┌──────────────────────────── Mac mini（无显示器）────────────────────────────┐
 │                                                                              │
 │  launchd                                                                     │
-│    └─ com.dsh.vdisplay      → vdisplay      造一块虚拟屏 SideLinker-HD        │
+│    └─ com.dsh.vdisplay      → vdisplay      造一块虚拟屏 iPadLink-HD        │
 │    └─ com.dsh.sidecar-guard → sidecar-guard 每 5 秒判断，需要就发起连接        │
 │    └─ com.dsh.vmenu         → vmenu         菜单栏：切分辨率 / 暂停           │
 │    └─ com.dsh.ucguard       → uc-guard      键盘链路看护（可选）              │
@@ -60,7 +60,7 @@
 │    SidecarDisplayManager.devices  → 同 iCloud 账号的 iPad 自动出现            │
 │    connectToDevice:completion:    → 建立随航会话                              │
 │                                                                              │
-│  WindowServer → Sidecar Display → 镜像到 SideLinker-HD                        │
+│  WindowServer → Sidecar Display → 镜像到 iPadLink-HD                        │
 └──────────────────────────────────────────────────────────────────────────────┘
                                    ▲
                          同一 Apple ID + 蓝牙 + Wi-Fi（或 USB-C）
