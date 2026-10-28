@@ -96,7 +96,7 @@
 ### 一键安装
 
 ```bash
-git clone https://github.com/Duandayi/macmini-headless-ipad.git
+git clone https://github.com/daxiong6666/macmini-headless-ipad.git
 cd macmini-headless-ipad
 ./install.sh
 ```
