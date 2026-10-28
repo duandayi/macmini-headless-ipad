@@ -1,263 +1,263 @@
-# Mac mini 无头模式 · 用 iPad 当唯一屏幕
+<p align="center">
+  <img src="assets/banner.png" alt="Mac mini × iPad" width="900">
+</p>
 
-把一台 **没有接显示器** 的 Mac mini，变成「开机 → 自动连上 iPad → iPad 就是这块 Mac 的屏幕」的个人工作站。
+<p align="center">
+  <b>把一台没有显示器的 Mac mini，变成以 iPad 为唯一屏幕的工作站</b><br>
+  自研虚拟屏 · 私有 API 直连 · 零第三方软件 · 开机自动连 · 断线自愈 · 系统级防篡改
+</p>
 
-整套方案 **不依赖任何付费软件**：虚拟屏是自己写的（78 行 Objective-C），连接守护是 Bash，唯一的第三方依赖是开源的 [SideLinker](https://github.com/wberry9813/SideLinker-Home)。
-
-```
-开机 → 自动登录 → launchd 拉起 vdisplay（虚拟屏）+ SideLinker
-     → SideLinker 连随航、配镜像 → iPad 显示桌面
-     → 键盘/触控板走「通用控制」（另一条独立通道）
-```
-
----
-
-## 为什么需要"虚拟屏"
-
-Mac 如果一块显示器都没有，随航连上 iPad 后是**黑屏**——因为 macOS 需要一个「镜像源」。
-实测（把唯一的虚拟屏删掉后连续观测 65 秒）：Sidecar 全程 offline。
-
-所以必须有一块虚拟屏当锚点。商业软件 BetterDisplay 干的就是这件事（Pro 授权 ¥138），
-本项目自己实现了它，参数可以做到完全一致。
+<p align="center">
+  <img alt="platform" src="https://img.shields.io/badge/macOS-26%2B-blue">
+  <img alt="chip" src="https://img.shields.io/badge/Apple%20Silicon-arm64-black">
+  <img alt="license" src="https://img.shields.io/badge/license-MIT-green">
+  <img alt="deps" src="https://img.shields.io/badge/third--party%20apps-0-brightgreen">
+  <img alt="lang" src="https://img.shields.io/badge/shell%20%2B%20objc-lightgrey">
+</p>
 
 ---
 
-## 效果（实测数据）
+## 这是什么
 
-| 项 | 值 |
+**一台 Mac mini 放在客厅，没有显示器、没有键盘，只有一根电源线。**
+你拿着 iPad 走到它旁边，iPad 自动亮起变成它的屏幕；你拿着 iPad 走开，它安静地等；你把 iPad 拿回来，它又自动连上。
+
+这个项目做三件事：
+
+| 能力 | 实现 |
 |---|---|
-| 面板分辨率 | 2646 × 1838 |
-| 逻辑分辨率 | 1323 × 919（HiDPI 2x） |
-| 刷新率 | 60 Hz |
-| 开机到连通 | **33 秒**（冷启动实测，含系统开机到登录） |
-| 有线随航 | 支持，`connection_type: wired` |
+| **制造一块"不存在的屏幕"** | `vdisplay`（自研，~120 行 ObjC，用 `CGVirtualDisplay` 私有接口） |
+| **让 iPad 变成这块屏** | `sidecarctl`（自研，~110 行 ObjC，直接调 `SidecarCore` 私有 API） |
+| **保证它一直可用** | `sidecar-guard`（守护）+ `protectd`（root 看护）+ 4 个 LaunchAgent |
 
----
+**不装任何第三方 App。** 不是"免费替代品"，而是把苹果内置但没开放的通道直接用起来。
 
-## 前置条件
+## 效果
 
-- macOS 26+（在 macOS 27.0 / Apple Silicon 上实测）
-- 一台 iPad（同一 Apple ID、已信任、开启蓝牙 + Wi-Fi）
-- [SideLinker Mac](https://github.com/wberry9813/SideLinker-Home)（开源，负责连随航 + 配镜像）
-- Xcode 命令行工具（编译虚拟屏）：`xcode-select --install`
-- **自动登录必须打开**（无头机器没人能输密码）；FileVault 会阻止自动登录，需要关闭
+<p align="center"><img src="assets/menubar-menu.png" width="620" alt="菜单栏切换分辨率"></p>
 
----
+| 指标 | 实测值 |
+|---|---|
+| 开机 → iPad 出现桌面 | **16～34 秒**（其中约 20 秒是系统蓝牙栈就绪） |
+| 断线 → 自动恢复 | **2～10 秒** |
+| 键盘（通用控制）建立链路 | **0 秒**（开机即用） |
+| iPad 端点要求 | **无任何 App**，只要同一 Apple ID |
+| 高位面板 | 2646×1838（HiDPI 2x，与 iPad 面板 1:1） |
+| 第三方依赖 | **0** |
 
-## 安装
+## 工作原理
+
+```
+┌──────────────────────────── Mac mini（无显示器）────────────────────────────┐
+│                                                                              │
+│  launchd                                                                     │
+│    └─ com.dsh.vdisplay      → vdisplay      造一块虚拟屏 SideLinker-HD        │
+│    └─ com.dsh.sidecar-guard → sidecar-guard 每 5 秒判断，需要就发起连接        │
+│    └─ com.dsh.vmenu         → vmenu         菜单栏：切分辨率 / 暂停           │
+│    └─ com.dsh.ucguard       → uc-guard      键盘链路看护（可选）              │
+│                                                                              │
+│  SidecarCore（苹果私有框架）                                                  │
+│    SidecarDisplayManager.devices  → 同 iCloud 账号的 iPad 自动出现            │
+│    connectToDevice:completion:    → 建立随航会话                              │
+│                                                                              │
+│  WindowServer → Sidecar Display → 镜像到 SideLinker-HD                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+                                   ▲
+                         同一 Apple ID + 蓝牙 + Wi-Fi（或 USB-C）
+                                   ▼
+                         ┌──────────────────┐
+                         │  iPad（唯一屏幕） │  ← 不需要装任何 App
+                         └──────────────────┘
+```
+
+**关键点**：iPad 只做"被投屏"的一方。连接由 Mac 主动发起，所以 iPad 关机、锁屏、不装 App 都不影响方案设计。
+
+## 组件与代码量
+
+| 组件 | 语言 | 行数 | 作用 |
+|---|---|---|---|
+| `src/vdisplay.m` | ObjC | ~120 | 创建 HiDPI 虚拟屏，多档模式（800/1001/1180/1323） |
+| `src/sidecarctl.m` | ObjC | ~110 | 列出设备 / 连接 / 断开，支持按 UUID 绑定 |
+| `src/vmenu.m` | ObjC | ~330 | 菜单栏图标：4 档分辨率、当前档玻璃高亮、暂停/恢复 |
+| `scripts/sidecar-guard` | Bash | ~150 | 触发式重连：USB > 近场 > 定时兜底 |
+| `protectd/protectd` | Bash | ~130 | root 看护：文件还原、补锁、agent 重载、进程/心跳救援 |
+| `scripts/sidecar-*` | Bash | ~200 | 状态、自检、报告、暂停、恢复 |
+
+全部源码都在这个仓库里，没有编译好的二进制、没有闭源依赖。
+
+## 快速开始
+
+### 前置条件
+
+- Apple Silicon Mac（实测 macOS 26/27），**同一 Apple ID** 的 iPad
+- iPad 打开蓝牙 + Wi-Fi（USB-C 直连最稳）
+- Mac 已登录该 Apple ID（随航的设备发现走 iCloud/IDS）
+
+### 一键安装
 
 ```bash
-git clone https://github.com/<你的用户名>/macmini-headless-ipad.git
+git clone https://github.com/Duandayi/macmini-headless-ipad.git
 cd macmini-headless-ipad
 ./install.sh
 ```
 
 安装脚本会：
-1. 编译 `src/vdisplay.m` → `~/.local/bin/vdisplay`
-2. 安装 `sidecar-guard` / `sidecar-status` / `sidecar-pause` / `sidecar-resume`
-3. 生成 `~/.config/sidecar/config.sh`（提示你填 SideLinker 的 API Token）
-4. 生成并加载两个 launchd 任务（虚拟屏 + 连接守护）
 
-安装后还需要 **手动做 4 件事**（一次性）：
+1. 检查前置条件（Xcode CLT、macOS 版本）
+2. 编译 `vdisplay` / `sidecarctl` / `vmenu` 到 `~/.local/bin`
+3. 安装 4 个 LaunchAgent 到 `~/Library/LaunchAgents`
+4. 跑 `sidecar-doctor` 自检
 
-1. SideLinker 里把「虚拟屏名称」设为 `SideLinker-HD`
-2. SideLinker Mac 加入「登录项」
-3. 系统设置 → 显示器：让 iPad 镜像到 `SideLinker-HD`
-4. 重启一次，然后 `sidecar-status` 检查
-
----
-
-## 菜单栏切换分辨率
-
-装好后菜单栏会多一个 **显示器图标**，点开就是：
-
-```
-主屏 iPad  1180×820
-  ├ 1180×820   Retina   ← 与面板 1:1，最清晰
-  ├ 1323×919   Retina   ← 空间更大，略软
-  ├ 1024×768   1x
-  └ …
-屏幕 2  2360×1640          ← 虚拟屏本身，一般不用动
-重新扫描 ⌘R
-退出 ⌘Q
-```
-
-选哪一档就立刻切换，不用开「系统设置」。带 **Retina** 的是 HiDPI（2x 渲染），清晰度更好。
-
-> 依赖 [displayplacer](https://github.com/jakehilborn/displayplacer)（开源，`brew install displayplacer`）。
-
-## 常用命令
+然后（只需一次）：
 
 ```bash
-sidecar-doctor     # 环境自检：一条命令告诉你哪里不符合（装完先跑这个）
-sidecar-status     # 链路状态（守护 + SideLinker + 显示器 + 日志）
-sidecar-pause      # 临时暂停自动重连（要拿 iPad 干别的时用）
-sidecar-resume     # 恢复自动重连
+sidecarctl list          # 应该能看到你的 iPad
+sidecarctl connect       # 手动连一次，系统会记住镜像配置
+sidecar-status           # 确认 connected=yes
 ```
 
----
+### 用 AI 直接部署
 
-## 自定义分辨率
+本项目**为 AI 部署准备过**：
 
-面板分辨率 = 逻辑分辨率 × 2。
+```
+把仓库地址丢给任意编码 Agent，说：
+"按 AGENTS.md 部署这个项目到本机，装完跑 sidecar-doctor，把结果给我"
+```
 
-**想让文字最清晰：选"与面板 1:1"的那一档。**
+`AGENTS.md` 写清了每一步、每个坑、每个校验点，Agent 不需要猜。
 
-以 iPad (A16) 11 吋为例，面板原生 **2360×1640**，对应逻辑 **1180×820 @2x**。
-此时 Mac 渲染多少像素，iPad 就显示多少像素，中间没有任何缩放——这是清晰度的上限。
+## 菜单栏
 
-选更大的逻辑尺寸（如 1323×919 → 面板 2646×1838）会换来更多桌面空间，
-但画面比面板大，iPad 端要缩小显示，文字会略微变软。两者不可兼得。
+<p align="center"><img src="assets/menubar-icon.png" width="72" alt="菜单栏图标"></p>
 
-查看当前屏支持哪些 HiDPI 档位：
+| 操作 | 结果 |
+|---|---|
+| 悬停图标 | 显示当前分辨率 |
+| 点一下 | 展开 4 档：`1180×820`（原生 1:1）/ `1323×919` / `1001×696` / `800×600` |
+| 当前档 | 浅蓝玻璃高亮 |
+| 暂停自动重连 ⌘P | 用 iPad 做别的事（开会/打游戏）时点它；**10 分钟后自动恢复** |
+
+## 系统级保护（重点）
+
+> 起因：曾经因为某个清理软件清空了登录项，导致整套连接失效，而且**没有任何提示**。
+
+现在这些组件被三层锁住：
+
+| 层 | 机制 | 能挡住谁 |
+|---|---|---|
+| 1 | 主副本 `/usr/local/libexec/dsh-sidecar/` 全部 `schg`（系统级不可变）+ `root:wheel` | 连 **root** 都要先 `chflags noschg` |
+| 2 | 用户副本 `~/.local/bin/` 全部 `uchg` | 普通程序写入 → `Operation not permitted` |
+| 3 | root 守护每 **20 秒**巡检 | 内容被改→还原；标记掉了→补；agent 被卸载→重载；进程被杀→kickstart；**守护卡死→2 分钟内 SIGKILL 重启** |
+
+实测（详见 [docs/系统级保护.md](docs/系统级保护.md)）：
+
+| 攻击 | 结果 |
+|---|---|
+| 用户权限改二进制 | `Operation not permitted` |
+| **管理员权限**改主副本 | `Operation not permitted`（schg） |
+| `launchctl bootout` 卸载服务 | 约 40 秒后自动重载 |
+| 解锁并修改用户副本 | 15 秒后还原 + 重新上锁 |
+| `kill -STOP` 冻住守护 | 2 分钟内检测心跳过期 → SIGKILL → 重启 |
+
+可选安装（需要一次管理员密码）：
 
 ```bash
-displayplacer list | grep "scaling:on"
-```
-改 `~/.config/sidecar/config.sh` 里的 `LOGICAL_W/LOGICAL_H`，
-再改对应的 launchd plist 里的 `--w/--h`，然后重新加载：
-
-```bash
-launchctl kickstart -k gui/$(id -u)/com.example.vdisplay
+sudo ./protectd/install-protectd.sh
 ```
 
-也可以手动跑一下看效果：
-
-```bash
-~/.local/bin/vdisplay --name SideLinker-HD --w 1323 --h 919 --scale 2
-```
-
----
+**边界**：拿到管理员密码的人仍然能改（先 `chflags noschg`）。这是操作系统权限模型的上限，任何软件都一样。
 
 ## 排障
 
-### 先跑自检
-
-```bash
-sidecar-doctor
-```
-
-它会逐项检查：系统版本、自动登录、FileVault、登录项、两个常驻组件、虚拟屏是否 HiDPI 2x、
-是否有别的虚拟屏软件冲突、SideLinker API 是否连通，最后给出「通过/提醒/失败」计数。
-大部分问题看输出就能定位。
-
-### 开机后 iPad 黑屏
-按顺序查：
-
-```bash
-# 1) 虚拟屏在不在
-pgrep -lf vdisplay
-
-# 2) SideLinker 在不在
-pgrep -lf "SideLinker Mac"
-
-# 3) SideLinker 自己怎么说
-curl -H "Authorization: Bearer <token>" http://127.0.0.1:14792/status
-
-# 4) 守护日志
-tail -20 ~/Library/Logs/sidecar-guard.log
-```
-
-最常见的原因：**登录项被清空**（某些"优化/清理"软件、或系统更新后会这样），
-导致 SideLinker 和虚拟屏都没被拉起。本项目的 launchd 任务不依赖登录项，但如果两者都没了，就检查登录项。
-
-### 字突然变模糊
-iPad 那块屏被切到了 **1x 模式**。正常应该是 `Resolution` 是 `UI Looks like` 的 **2 倍**：
-
-```bash
-system_profiler SPDisplaysDataType | grep -E "Resolution|UI Looks like"
-```
-
-修法（先用 `displayplacer list` 找到 iPad 那块屏的 id）：
-
-```bash
-displayplacer "id:<屏幕ID> res:1323x919 hz:60 color_depth:4 scaling:on"
-```
-
-### 虚拟屏起不来 / 报"身份冲突"
-`vendorID / productID / serialNum` 必须与系统里其它虚拟屏**不同**，否则 macOS 拒绝创建，
-WindowServer 日志是 `no displayID available`。改 `src/vdisplay.m` 里那三个值即可。
-
-### 键盘（通用控制）掉线
-这是另一条独立通道，与随航无关。常见诱因是 AirPods 等蓝牙设备抢占射频。
-本项目暂未包含键盘看门狗，可自行用 `killall UniversalControl` 后等系统重连。
-
----
-
-## 非 iPad 用户怎么办
-
-这套方案的连接环节用的是 macOS **随航（Sidecar）**，它**只支持 iPad**。
-小米、华为等安卓平板用不了随航——这是苹果的限制。
-
-但方案要拆成两半看：
-
-| 环节 | 本项目实现 | 通用性 |
+| 现象 | 原因 | 处理 |
 |---|---|---|
-| A. 虚拟屏（让 Mac 以为有块屏） | `vdisplay` | ✅ 通用，任何场景都要 |
-| B. 把画面送到设备 | 随航（Sidecar） | ❌ 仅 iPad |
+| iPad 黑屏 | 虚拟屏没建起来 / 没连上 | `sidecar-status`、`sidecar-doctor` |
+| 点菜单没反应 | 处在「暂停」状态 | 点「恢复自动重连」或 `sidecar-resume` |
+| 连不上，提示 Wi-Fi 不可用 | iPad 关了 Wi-Fi | 打开 Wi-Fi，10 秒内自动连 |
+| 找不到设备 | iPad 关机 / 蓝牙没开 | 开机 + 开蓝牙，最多 2 分钟自动连 |
+| 画面模糊 | 分辨率不是 1:1 | 菜单选 `1180×820`（原生） |
+| 键盘掉线 | 有别的显示增强软件在改配置 | 关掉它（本项目不需要任何此类软件） |
 
-所以：
+完整踩坑记录（含系统日志原文）：[docs/踩坑记录.md](docs/踩坑记录.md)
 
-- **安卓平板**：保留 A（`vdisplay` 可直接复用），把 B 换成 Sunshine + Moonlight（低延迟，支持 120Hz）
-  或 Deskreen（浏览器打开就能看，配置最简单）。文字锐度不如有线随航，这是压缩流的物理限制。
-- **没有平板、只想远程用这台 Mac**：最简单的方案是买个 **HDMI 诱骗器（dummy plug，几十元）**，
-  插上 Mac 就会认为接了显示器，不需要任何软件。本项目的价值主要在于「无显示器 + 移动端做屏幕」这个场景。
+## 不只 iPad：其他人怎么用
 
-我们不建议为了用本项目去买 iPad；如果你已经有 Mac 无头、需要一块屏幕，先试 HDMI 诱骗器更便宜。
+连接环节用的是**随航（Sidecar）**，它只支持 iPad。如果是安卓平板：
 
-## 测试状态（诚实说明）
+| 环节 | 本项目 | 通用性 |
+|---|---|---|
+| A. 虚拟屏（让 Mac 以为有块屏） | `vdisplay` | ✅ 任何方案都能用 |
+| B. 把画面送到设备 | 随航 | ❌ 仅 iPad |
 
-- 冷启动验证：**已通过 1 次**（2026-10-27，开机到连通 33 秒，0 次人工干预）
-- 长时间稳定性：**正在跑 5 天观察期**（每次开机自动记录耗时与干预次数）
-- 验证工具：`sidecar-report` 输出每次开机的耗时/唤醒次数，到期后看是否稳定
-- 只在 **macOS 27.0 / Apple Silicon** 上实测过；更早系统未验证（`sidecar-doctor` 会提示）
+- **安卓平板**：保留 A，把 B 换成 [Sunshine](https://github.com/LizardByte/Sunshine) + Moonlight 或 Deskreen
+- **只想远程用这台 Mac**：买个 **HDMI 诱骗器**（几十元）最简单
+- **没有平板**：本项目不适用
 
-如果你在别的机型遇到问题，欢迎开 issue 贴上 `sidecar-doctor` 的输出。
+**不要为了用本项目去买 iPad。**
 
-## 技术笔记
+## 兼容性与测试状态（诚实说明）
 
-### 用到的私有 API
+- 实测机型：**Mac18,5 / Apple M6 / 16GB / macOS 27.0**
+- 冷启动验证：**多次通过**（开机到连上 16～34 秒，0 次人工干预）
+- 长期稳定性：**观察期进行中**（`sidecar-report` 记录每次开机耗时与干预次数）
+- 未验证：更早的 macOS、Intel 机型、多台 iPad 同时在线
+- 私有 API（`CGVirtualDisplay` / `SidecarCore`）**没有官方文档**，系统大版本升级后可能失效——届时 `sidecar-doctor` 会先报出来
 
-`CGVirtualDisplay` 系列（`CoreGraphics`，未公开但长期存在）：`CGVirtualDisplayDescriptor`、
-`CGVirtualDisplaySettings`、`CGVirtualDisplayMode`、`CGVirtualDisplay`。
-
-编译要点：
-
-```bash
-clang -fobjc-arc -framework Foundation -framework AppKit \
-      -undefined dynamic_lookup -O2 -o vdisplay src/vdisplay.m
-```
-
-- `-undefined dynamic_lookup`：私有类不在 SDK 里，链接期不解析、运行期绑定
-- 直接按真名声明 `@interface`，**不要**用 `NSInvocation` 传 `NSUInteger`（ABI 会错位，段错误）
-- `initWithWidth:height:refreshRate:` 的真实签名是 `uint32, uint32, double`
-
-### 已知限制
-
-- 私有 API 未来可能被 Apple 收紧，届时需要切到别的方案
-- 每台机器上虚拟屏的 `vendorID/productID/serialNum` 要保持唯一
-- 未包含 root 级防篡改（可选，见 `docs/` 说明）
-
----
+遇到问题请附 `sidecar-doctor` 的输出开 issue。
 
 ## 目录结构
 
 ```
-src/vdisplay.m      虚拟屏实现（78 行）
-scripts/            守护、自检、报告命令
-launchd/            开机自启模板
-install.sh          一键安装
-uninstall.sh        卸载
-docs/               踩坑记录与排障
+.
+├── install.sh / uninstall.sh      安装 / 卸载
+├── config.example.sh              配置样例（设备绑定、分辨率）
+├── src/
+│   ├── vdisplay.m                 虚拟屏
+│   ├── sidecarctl.m               随航连接器
+│   └── vmenu.m                    菜单栏
+├── scripts/
+│   ├── sidecar-guard              连接守护
+│   ├── sidecar-doctor             环境自检（装完先跑）
+│   ├── sidecar-status             实时状态
+│   ├── sidecar-report             测试期报告
+│   └── sidecar-pause / -resume    暂停 / 恢复
+├── launchd/*.plist.template       开机自启模板
+├── protectd/                      系统级保护（可选）
+├── docs/
+│   ├── 系统级保护.md
+│   └── 踩坑记录.md
+├── assets/                        Logo / 横幅 / 截图
+└── AGENTS.md                      给 AI Agent 的部署说明
 ```
 
----
+## 卸载
 
-## 致谢
+```bash
+./uninstall.sh
+# 若装了系统级保护：
+sudo chflags noschg /usr/local/libexec/dsh-sidecar/* /usr/local/libexec/dsh-sidecar
+sudo launchctl bootout system/com.dsh.sidecar-protect
+sudo rm -rf /usr/local/libexec/dsh-sidecar /Library/LaunchDaemons/com.dsh.sidecar-protect.plist
+```
 
-- [SideLinker](https://github.com/wberry9813/SideLinker-Home) —— 连随航 + 配镜像的开源实现
-- 苹果的随航（Sidecar）与通用控制（Universal Control）
+## 贡献
+
+欢迎 issue / PR。请注意：
+
+- 本项目依赖**苹果私有接口**，任何改动都要在真机验证
+- 涉及 `protectd` 的改动请说明安全性影响
+- 不接受引入第三方运行时依赖（Node/Python 等）的改动
 
 ## License
 
-MIT
+[MIT](LICENSE) © 2026 Duandayi
+
+## 致谢
+
+- 苹果 `CGVirtualDisplay` / `SidecarCore`：这套方案能成立的前提
+- 所有在无头 Mac 上折腾过的人：踩坑记录里的每一条都是真机日志
+
+---
+
+<p align="center"><sub>如果这个项目让一台吃灰的 Mac mini 重新有了用处，点个 ⭐ 就够了。</sub></p>
