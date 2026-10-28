@@ -1,5 +1,5 @@
 #!/bin/bash
-# sidecar-guard v19 — 私有 API 直连 + USB 优先 + 近场感应 + 不打扰用户
+# sidecar-guard v20 — 私有 API 直连 + USB 优先 + 近场感应 + 不打扰用户
 LOG="$HOME/Library/Logs/sidecar-guard.log"
 STATUS="/tmp/sidecar-guard.status"
 PAUSE="$HOME/.sidecar-pause"
@@ -50,7 +50,7 @@ ipad_rssi() {
 
 BT=$(sysctl -n kern.boottime | sed -E 's/^\{ sec = ([0-9]+).*/\1/')
 UPTIME=$(( $(date +%s) - BT ))
-logit "=== sidecar-guard v19 启动 (pid $$, 开机后 ${UPTIME}s) ==="
+logit "=== sidecar-guard v20 启动 (pid $$, 开机后 ${UPTIME}s) ==="
 FAILS=0; CONNECTS=0; TICKN=0; LAST_HB=$(date +%s); LAST_TRIGGER=""
 BACKOFF=5; NEAR=0; COOLDOWN_UNTIL=0
 
@@ -132,7 +132,10 @@ while true; do
                     # 设备找不到   → 多半是 iPad 关机，慢速重试（120 秒），省电
                     devs=$(devices_count)
                     BACKOFF=$(( BACKOFF * 2 ))
-                    if [ "$devs" -ge 1 ]; then
+                    if [ "$UP" -lt "$BOOT_PHASE" ]; then
+                        # 开机阶段：设备刚上电、蓝牙还没广播，5 秒一试，尽快连上
+                        [ "$BACKOFF" -gt 5 ] && BACKOFF=5
+                    elif [ "$devs" -ge 1 ]; then
                         [ "$BACKOFF" -gt 10 ] && BACKOFF=10
                     else
                         [ "$BACKOFF" -gt 120 ] && BACKOFF=120
