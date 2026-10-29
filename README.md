@@ -54,26 +54,24 @@
 ## 工作原理
 
 ```
-┌──────────────────────────── Mac mini（无显示器）────────────────────────────┐
-│                                                                              │
-│  launchd                                                                     │
-│    └─ com.dsh.vdisplay      → vdisplay      造一块虚拟屏 iPadLink-HD        │
-│    └─ com.dsh.sidecar-guard → sidecar-guard 每 5 秒判断，需要就发起连接        │
-│    └─ com.dsh.vmenu         → vmenu         菜单栏：切分辨率 / 暂停           │
-│    └─ com.dsh.ucguard       → uc-guard      键盘链路看护（可选）              │
-│                                                                              │
-│  SidecarCore（苹果私有框架）                                                  │
-│    SidecarDisplayManager.devices  → 同 iCloud 账号的 iPad 自动出现            │
-│    connectToDevice:completion:    → 建立随航会话                              │
-│                                                                              │
-│  WindowServer → Sidecar Display → 镜像到 iPadLink-HD                        │
-└──────────────────────────────────────────────────────────────────────────────┘
-                                   ▲
-                         同一 Apple ID + 蓝牙 + Wi-Fi（或 USB-C）
-                                   ▼
-                         ┌──────────────────┐
-                         │  iPad（唯一屏幕） │  ← 不需要装任何 App
-                         └──────────────────┘
+┌─────────────── Mac mini（无显示器）───────────────┐
+│ launchd                                           │
+│  ├ vdisplay       造虚拟屏 iPadLink-HD            │
+│  ├ sidecar-guard  每 5 秒判断，需要就发起连接     │
+│  ├ vmenu          菜单栏：分辨率 / 暂停           │
+│  └ ucguard        键盘链路看护（可选）            │
+│                                                   │
+│ SidecarCore（苹果私有框架）                       │
+│  devices          → 同 iCloud 的 iPad 自动出现    │
+│  connectToDevice: → 建立随航会话                  │
+│                                                   │
+│ WindowServer → Sidecar → 镜像到虚拟屏             │
+└───────────────────────┬───────────────────────────┘
+                        │ 同一 Apple ID + 蓝牙/Wi-Fi
+                        ▼
+              ┌────────────────────┐
+              │ iPad（唯一屏幕）   │  无需安装任何 App
+              └────────────────────┘
 ```
 
 **关键点**：iPad 只做"被投屏"的一方。连接由 Mac 主动发起，所以 iPad 关机、锁屏、不装 App 都不影响方案设计。
@@ -150,11 +148,14 @@ sidecar-status           # 确认 connected=yes
 
 现在这些组件被三层锁住：
 
-| 层 | 机制 | 能挡住谁 |
-|---|---|---|
-| 1 | 主副本 `/usr/local/libexec/dsh-sidecar/` 全部 `schg`（系统级不可变）+ `root:wheel` | 连 **root** 都要先 `chflags noschg` |
-| 2 | 用户副本 `~/.local/bin/` 全部 `uchg` | 普通程序写入 → `Operation not permitted` |
-| 3 | root 守护每 **20 秒**巡检 | 内容被改→还原；标记掉了→补；agent 被卸载→重载；进程被杀→kickstart；**守护卡死→2 分钟内 SIGKILL 重启** |
+**第 1 层 —— 主副本**
+`/usr/local/libexec/dsh-sidecar/` 全部 `schg`（系统级不可变）+ `root:wheel`，连 root 都要先清标记。
+
+**第 2 层 —— 用户副本**
+`~/.local/bin/` 全部 `uchg`，普通程序写入直接 `Operation not permitted`。
+
+**第 3 层 —— root 守护**
+每 20 秒巡检：内容被改→还原；标记掉了→补；agent 被卸载→重载；进程被杀→kickstart；守护卡死→2 分钟内 SIGKILL 重启。
 
 实测（详见 [docs/系统级保护.md](docs/系统级保护.md)）：
 
@@ -176,14 +177,12 @@ sudo ./protectd/install-protectd.sh
 
 ## 排障
 
-| 现象 | 原因 | 处理 |
-|---|---|---|
-| iPad 黑屏 | 虚拟屏没建起来 / 没连上 | `sidecar-status`、`sidecar-doctor` |
-| 点菜单没反应 | 处在「暂停」状态 | 点「恢复自动重连」或 `sidecar-resume` |
-| 连不上，提示 Wi-Fi 不可用 | iPad 关了 Wi-Fi | 打开 Wi-Fi，10 秒内自动连 |
-| 找不到设备 | iPad 关机 / 蓝牙没开 | 开机 + 开蓝牙，最多 2 分钟自动连 |
-| 画面模糊 | 分辨率不是 1:1 | 菜单选 `1180×820`（原生） |
-| 键盘掉线 | 有别的显示增强软件在改配置 | 关掉它（本项目不需要任何此类软件） |
+- **iPad 黑屏** —— 虚拟屏没建起来，或没有会话 → `sidecar-status`、`sidecar-doctor`
+- **点菜单没反应** —— 处于「暂停」状态 → 点「恢复自动重连」或 `sidecar-resume`
+- **提示 Wi-Fi 不可用** —— iPad 关了 Wi-Fi → 打开后 10 秒内自动连
+- **找不到设备** —— iPad 关机或蓝牙未开 → 开机后 2 分钟内自动连
+- **画面模糊** —— 不在 1:1 档位 → 菜单里选 `1180×820`
+- **键盘反复掉线** —— 有别的显示增强软件在改配置 → 卸载它（本项目不需要）
 
 完整踩坑记录（含系统日志原文）：[docs/踩坑记录.md](docs/踩坑记录.md)
 
@@ -242,9 +241,11 @@ sudo ./protectd/install-protectd.sh
 ```bash
 ./uninstall.sh
 # 若装了系统级保护：
-sudo chflags noschg /usr/local/libexec/dsh-sidecar/* /usr/local/libexec/dsh-sidecar
+sudo chflags noschg /usr/local/libexec/dsh-sidecar/* \
+                 /usr/local/libexec/dsh-sidecar
 sudo launchctl bootout system/com.dsh.sidecar-protect
-sudo rm -rf /usr/local/libexec/dsh-sidecar /Library/LaunchDaemons/com.dsh.sidecar-protect.plist
+sudo rm -rf /usr/local/libexec/dsh-sidecar \
+            /Library/LaunchDaemons/com.dsh.sidecar-protect.plist
 ```
 
 ## 贡献

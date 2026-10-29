@@ -52,26 +52,24 @@ No third-party application is installed. This is not a free clone of a paid prod
 ## How it works
 
 ```
-┌──────────────────────────── Mac mini (no display) ────────────────────────────┐
-│                                                                               │
-│  launchd                                                                      │
-│    └─ com.dsh.vdisplay      → vdisplay      creates virtual display "iPadLink-HD"
-│    └─ com.dsh.sidecar-guard → sidecar-guard polls every 5 s, connects when needed
-│    └─ com.dsh.vmenu         → vmenu         menu bar: resolution / pause      │
-│    └─ com.dsh.ucguard       → uc-guard      Universal Control watchdog (optional)
-│                                                                               │
-│  SidecarCore (Apple private framework)                                        │
-│    SidecarDisplayManager.devices  → iPads on the same iCloud account appear   │
-│    connectToDevice:completion:    → opens a Sidecar session                   │
-│                                                                               │
-│  WindowServer → Sidecar Display → mirrored onto the virtual display           │
-└───────────────────────────────────────────────────────────────────────────────┘
-                                   ▲
-                    same Apple ID + Bluetooth + Wi-Fi (or USB-C)
-                                   ▼
-                         ┌──────────────────┐
-                         │  iPad (only screen) │  ← nothing to install
-                         └──────────────────┘
+┌────────────── Mac mini (no display) ──────────────┐
+│ launchd                                           │
+│  ├ vdisplay       creates virtual display         │
+│  ├ sidecar-guard  polls every 5 s, connects       │
+│  ├ vmenu          menu bar: modes / pause         │
+│  └ ucguard        Universal Control watchdog      │
+│                                                   │
+│ SidecarCore (Apple private framework)             │
+│  devices          → iPads on the same iCloud      │
+│  connectToDevice: → opens a Sidecar session       │
+│                                                   │
+│ WindowServer → Sidecar → mirrored to the display  │
+└───────────────────────┬───────────────────────────┘
+                        │ same Apple ID + BT / Wi-Fi
+                        ▼
+              ┌────────────────────┐
+              │ iPad (only screen) │  nothing to install
+              └────────────────────┘
 ```
 
 The iPad is purely a receiver. The Mac initiates every session, so a powered-off, locked, or app-less iPad never blocks the design.
@@ -111,7 +109,7 @@ First connection, once:
 
 ```bash
 sidecarctl list          # your iPad should be listed
-sidecarctl connect       # establishes the session; macOS remembers the mirror setup
+sidecarctl connect       # opens the session; macOS remembers the mirror
 sidecar-status           # expect connected=yes
 ```
 
@@ -121,7 +119,7 @@ The repository is written to be deployed by a coding agent:
 
 ```
 Point your agent at this repository and say:
-"Deploy this project to this machine following AGENTS.md, then run sidecar-doctor and show me the output."
+"Deploy this project following AGENTS.md, then run\n sidecar-doctor and show me the result."
 ```
 
 `AGENTS.md` documents every step, every known failure mode, and the acceptance checks, so the agent does not have to guess.
@@ -141,11 +139,14 @@ Point your agent at this repository and say:
 
 The components are protected on three levels:
 
-| Layer | Mechanism | What it stops |
-|---|---|---|
-| 1 | Master copies in `/usr/local/libexec/dsh-sidecar/` are `schg` (system-immutable) and owned by `root:wheel` | Even **root** must clear the flag first |
-| 2 | User copies in `~/.local/bin/` are `uchg` | Ordinary processes get `Operation not permitted` |
-| 3 | Root daemon re-checks every **20 s** | Modified file → restored; lost flag → re-applied; agent unloaded → reloaded; hung guard → `SIGKILL` and restart within 2 minutes |
+**Layer 1 — master copies**
+Everything under `/usr/local/libexec/dsh-sidecar/` is `schg` (system-immutable) and owned by `root:wheel`; even root has to clear the flag first.
+
+**Layer 2 — user copies**
+Everything in `~/.local/bin/` is `uchg`; ordinary processes get `Operation not permitted`.
+
+**Layer 3 — root daemon**
+A sweep every 20 s: modified file → restored; lost flag → re-applied; agent unloaded → reloaded; process killed → restarted; hung guard → `SIGKILL` within 2 minutes.
 
 Verified behaviour (details in [docs/系统级保护.md](docs/系统级保护.md)):
 
@@ -167,14 +168,12 @@ sudo ./protectd/install-protectd.sh
 
 ## Troubleshooting
 
-| Symptom | Cause | Fix |
-|---|---|---|
-| iPad stays black | no virtual display, or no session | `sidecar-status`, `sidecar-doctor` |
-| Menu items do nothing | the guard is paused | choose "Resume" or run `sidecar-resume` |
-| "Wi-Fi is not available on the device" | Wi-Fi disabled on the iPad | enable it; reconnects within 10 s |
-| Device not found | iPad powered off or Bluetooth off | power on; reconnects within 2 minutes |
-| Blurry output | not running at 1:1 | pick `1180×820` in the menu |
-| Keyboard keeps dropping | another display-enhancement tool is rewriting the configuration | remove it — this project needs none |
+- **iPad stays black** — no virtual display, or no session → `sidecar-status`, `sidecar-doctor`
+- **Menu items do nothing** — the guard is paused → choose "Resume" or run `sidecar-resume`
+- **"Wi-Fi is not available on the device"** — Wi-Fi disabled on the iPad → enable it; reconnects within 10 s
+- **Device not found** — iPad powered off or Bluetooth off → power on; reconnects within 2 minutes
+- **Blurry output** — not running at 1:1 → pick `1180×820` in the menu
+- **Keyboard keeps dropping** — another display tool is rewriting the configuration → remove it
 
 Full pitfall log with real system log excerpts: [docs/踩坑记录.md](docs/踩坑记录.md) (Chinese).
 
@@ -210,7 +209,7 @@ When filing an issue, include the output of `sidecar-doctor`.
 ├── install.sh / uninstall.sh      install / remove
 ├── config.example.sh              sample config (device binding)
 ├── src/                           vdisplay.m · sidecarctl.m · vmenu.m
-├── scripts/                       guard · doctor · status · report · pause · resume
+├── scripts/                       guard · doctor · status · report
 ├── launchd/                       agent templates
 ├── protectd/                      system-level protection (optional)
 ├── docs/                          protection notes · pitfall log
@@ -223,9 +222,11 @@ When filing an issue, include the output of `sidecar-doctor`.
 ```bash
 ./uninstall.sh
 # if system-level protection is installed:
-sudo chflags noschg /usr/local/libexec/dsh-sidecar/* /usr/local/libexec/dsh-sidecar
+sudo chflags noschg /usr/local/libexec/dsh-sidecar/* \
+                 /usr/local/libexec/dsh-sidecar
 sudo launchctl bootout system/com.dsh.sidecar-protect
-sudo rm -rf /usr/local/libexec/dsh-sidecar /Library/LaunchDaemons/com.dsh.sidecar-protect.plist
+sudo rm -rf /usr/local/libexec/dsh-sidecar \
+            /Library/LaunchDaemons/com.dsh.sidecar-protect.plist
 ```
 
 ## Contributing
