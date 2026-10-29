@@ -121,6 +121,7 @@ The repository is written to be deployed by a coding agent:
 Point your agent at this repository and say:
 "Deploy this project following AGENTS.md,
  then run sidecar-doctor and show me the result."
+```
 
 `AGENTS.md` documents every step, every known failure mode, and the acceptance checks, so the agent does not have to guess.
 
