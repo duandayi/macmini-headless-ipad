@@ -98,7 +98,7 @@ Everything is source. There are no prebuilt binaries and no closed dependencies.
 ### Install
 
 ```bash
-git clone https://github.com/daxiong6666/macmini-headless-ipad.git
+git clone https://github.com/duandayi/macmini-headless-ipad.git
 cd macmini-headless-ipad
 ./install.sh
 ```

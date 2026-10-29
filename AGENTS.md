@@ -36,7 +36,7 @@ xcode-select -p               # 需要 Command Line Tools
 ### 1. 克隆并安装
 
 ```bash
-git clone https://github.com/daxiong6666/macmini-headless-ipad.git
+git clone https://github.com/duandayi/macmini-headless-ipad.git
 cd macmini-headless-ipad
 ./install.sh
 ```
