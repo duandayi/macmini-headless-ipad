@@ -49,6 +49,20 @@ No third-party application is installed. This is not a free clone of a paid prod
 | Native panel | 2646×1838 (HiDPI 2×, 1:1 with the iPad panel) |
 | Third-party dependencies | **0** |
 
+## How it compares
+
+Every other approach we could find needs either hardware or third-party software:
+
+| Approach | Hardware | Software | Auto-connect | Cost |
+|---|---|---|---|---|
+| HDMI dummy plug + remote desktop | ✅ required | ✅ VNC / Sunshine | partial | $5–15 |
+| BetterDisplay + connector app | ❌ | ✅ two apps | ✅ | $20+ |
+| Luna Display | ✅ dongle | ✅ app | ❌ manual | ~$130 |
+| Duet Display | ❌ | ✅ app | ❌ manual | subscription |
+| **This project** | ❌ | ❌ | ✅ | **free** |
+
+The difference is where the work happens: **the virtual display is built here, and the session is opened by calling Apple's private API directly** — so there is no dongle to buy and no app to install.
+
 ## How it works
 
 ```
