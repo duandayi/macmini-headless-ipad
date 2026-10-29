@@ -7,12 +7,16 @@
 
 #import <Foundation/Foundation.h>
 #include <dlfcn.h>
+#include <objc/message.h>
 
 @interface SidecarDevice : NSObject
 - (NSString *)name;
 - (NSString *)model;
 - (id)identifier;
 - (long long)status;
+@end
+@interface SidecarDevice (ForceFetch)
++ (NSArray *)allDevicesByForcingFetchFromRelay:(BOOL)force;
 @end
 @interface SidecarDisplayManager : NSObject
 + (instancetype)sharedManager;
@@ -28,8 +32,21 @@ static SidecarDisplayManager *mgr(void) {
     return [DM sharedManager];
 }
 
+// 取可用设备；若为空，强制从 relay 拉一次（比等蓝牙广播快很多）
+static NSArray *availableDevices(void) {
+    NSArray *list = [mgr() devices];
+    if (list.count > 0) return list;
+    Class D = NSClassFromString(@"SidecarDevice");
+    SEL sel = NSSelectorFromString(@"allDevicesByForcingFetchFromRelay:");
+    if (D && [D respondsToSelector:sel]) {
+        NSArray *forced = ((NSArray *(*)(id, SEL, BOOL))objc_msgSend)(D, sel, YES);
+        if (forced.count) return forced;
+    }
+    return list ?: @[];
+}
+
 static SidecarDevice *findDevice(NSString *fragment, BOOL onlyConnected) {
-    NSArray *list = onlyConnected ? [mgr() connectedDevices] : [mgr() devices];
+    NSArray *list = onlyConnected ? [mgr() connectedDevices] : availableDevices();
     if (!list.count) return nil;
     if (!fragment.length) return list.firstObject;
     // 支持三种匹配：完整 UUID / UUID 前缀 / 设备名片段
@@ -53,8 +70,9 @@ int main(int argc, const char **argv) {
 
         if ([cmd isEqualToString:@"list"]) {
             printf("支持: %s\n", (BOOL)[(id)NSClassFromString(@"SidecarDisplayManager") isSupported] ? "是" : "否");
-            printf("\n可用设备 %lu:\n", (unsigned long)[[mgr() devices] count]);
-            for (SidecarDevice *d in [mgr() devices])
+            NSArray *av = availableDevices();
+            printf("\n可用设备 %lu:\n", (unsigned long)av.count);
+            for (SidecarDevice *d in availableDevices())
                 printf("  %-20s %-12s id=%s\n", [[d name] UTF8String], [[d model] UTF8String],
                        [[[d identifier] description] UTF8String]);
             printf("\n已连接 %lu:\n", (unsigned long)[[mgr() connectedDevices] count]);

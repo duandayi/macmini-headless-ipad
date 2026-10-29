@@ -1,5 +1,5 @@
 #!/bin/bash
-# sidecar-guard v20 — 私有 API 直连 + USB 优先 + 近场感应 + 不打扰用户
+# sidecar-guard v21 — 私有 API 直连 + USB 优先 + 近场感应 + 不打扰用户
 LOG="$HOME/Library/Logs/sidecar-guard.log"
 STATUS="/tmp/sidecar-guard.status"
 PAUSE="$HOME/.sidecar-pause"
@@ -50,7 +50,9 @@ ipad_rssi() {
 
 BT=$(sysctl -n kern.boottime | sed -E 's/^\{ sec = ([0-9]+).*/\1/')
 UPTIME=$(( $(date +%s) - BT ))
-logit "=== sidecar-guard v20 启动 (pid $$, 开机后 ${UPTIME}s) ==="
+logit "=== sidecar-guard v21 启动 (pid $$, 开机后 ${UPTIME}s) ==="
+# 预热：立刻触发一次设备发现（sidecarctl 在列表为空时会强制从 relay 拉取）
+"$BIN/sidecarctl" list >/dev/null 2>&1 &
 FAILS=0; CONNECTS=0; TICKN=0; LAST_HB=$(date +%s); LAST_TRIGGER=""
 BACKOFF=5; NEAR=0; COOLDOWN_UNTIL=0
 
@@ -133,8 +135,8 @@ while true; do
                     devs=$(devices_count)
                     BACKOFF=$(( BACKOFF * 2 ))
                     if [ "$UP" -lt "$BOOT_PHASE" ]; then
-                        # 开机阶段：设备刚上电、蓝牙还没广播，5 秒一试，尽快连上
-                        [ "$BACKOFF" -gt 5 ] && BACKOFF=5
+                        # 开机阶段：设备刚上电、蓝牙还没广播，3 秒一试，尽快连上
+                        [ "$BACKOFF" -gt 3 ] && BACKOFF=3
                     elif [ "$devs" -ge 1 ]; then
                         [ "$BACKOFF" -gt 10 ] && BACKOFF=10
                     else
