@@ -8,6 +8,10 @@
 </p>
 
 <p align="center">
+  <a href="README.en.md">English</a> · <b>中文</b>
+</p>
+
+<p align="center">
   <img alt="platform" src="https://img.shields.io/badge/macOS-26%2B-blue">
   <img alt="chip" src="https://img.shields.io/badge/Apple%20Silicon-arm64-black">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-green">
@@ -16,6 +20,8 @@
 </p>
 
 ---
+
+<p align="center"><img src="assets/demo.gif" width="760" alt="开机自动连接演示"></p>
 
 ## 这是什么
 
