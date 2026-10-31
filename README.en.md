@@ -156,6 +156,32 @@ Point your agent at this repository and say:
 | Active mode | Highlighted with a light-blue glass overlay |
 | Pause auto-reconnect (⌘P) | For when you need the iPad elsewhere (meetings, gaming); **auto-resumes after 10 minutes** |
 
+## Automatic recovery (five-level ladder)
+
+Sidecar sessions do hang. This is not hypothetical: after closing and reopening the iPad, the link failed permanently and the only fix was a reboot.
+
+The watchdog now escalates through increasingly heavy repair actions, and **recovers on its own within minutes — no reboot required**:
+
+| Level | Action | Trigger (consecutive failures) | Approx. time |
+|---|---|---|---|
+| **L1** | Reconnect | every check | 5–10 s |
+| **L2** | Disconnect + reconnect (clears a stuck session) | 3 | ~30 s |
+| **L3** | Rebuild the virtual display, then reconnect | 6 | ~90 s |
+| **L4** | Restart the Sidecar agents (`sidecar-display-agent` / `sidecar-relay`) | 10 | ~3 min |
+| **L5** | Restart the discovery daemon (`rapportd`) | 20 | ~8 min |
+
+Every step is recorded in `~/Library/Logs/sidecar-rescue.log`:
+
+```
+time|type|level|result|seconds disconnected
+2026-10-31 16:18:47|rescue|L2|failed|43
+2026-10-31 16:19:20|recovered|L2|ok|76
+```
+
+`sidecar-report` summarises that log — how often each level fired, and the average recovery time — so the thresholds can be tuned from measured data rather than guesswork.
+
+**Limit:** if the iPad is powered off, out of battery, or its own system has hung, nothing on the Mac side can help. That is not a problem software can solve.
+
 ## Tamper protection
 
 > Background: a cleanup utility once cleared the login items, the whole connection stopped working, and nothing warned about it.
