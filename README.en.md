@@ -156,17 +156,6 @@ Point your agent at this repository and say:
 | Active mode | Highlighted with a light-blue glass overlay |
 | Pause auto-reconnect (⌘P) | For when you need the iPad elsewhere (meetings, gaming); **auto-resumes after 10 minutes** |
 
-**Cover-closed standby (new in v22)**
-
-When the iPad is closed or put away, the Mac stops reconnecting and releases the virtual display within **3 minutes**, then waits quietly:
-
-- Trigger: iPad invisible over Bluetooth for **≥180 s** *and* the Mac idle for **≥120 s**
-- While waiting: session disconnected, virtual display released, no reconnection attempts (the Mac stays awake, ready to resume)
-- Wake: as soon as the iPad is visible again, the virtual display is rebuilt and the session reconnects — **without touching the Mac**
-- Never triggers when: connected over USB, auto-reconnect paused, or the Mac is in active use
-
-Thresholds are configurable: `SIDECAR_STANDBY_SECS` (default 180) and `SIDECAR_STANDBY_IDLE` (default 120).
-
 ## Tamper protection
 
 > Background: a cleanup utility once cleared the login items, the whole connection stopped working, and nothing warned about it.
