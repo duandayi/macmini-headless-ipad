@@ -1,5 +1,5 @@
 #!/bin/bash
-# sidecar-guard v25 — 私有 API 直连 + USB 优先 + 近场感应 + 不打扰用户
+# sidecar-guard v26 — 私有 API 直连 + USB 优先 + 近场感应 + 不打扰用户
 LOG="$HOME/Library/Logs/sidecar-guard.log"
 STATUS="/tmp/sidecar-guard.status"
 PAUSE="$HOME/.sidecar-pause"
@@ -13,11 +13,40 @@ FALLBACK_TICKS=6
 GU=$(id -u)
 COOLDOWN_FILE=/tmp/sidecar-cooldown
 BOOT_PHASE=300
-STANDBY_SECS=${SIDECAR_STANDBY_SECS:-180}   # iPad 完全消失多久后进入待机
-COVER_SECS=${SIDECAR_COVER_SECS:-10}        # iPad 屏幕消失多久算「合上」
-STANDBY_IDLE=${SIDECAR_STANDBY_IDLE:-120}   # 同时要求 Mac 侧无操作
 PAUSE_MAX=600          # 暂停上限 10 分钟
 logit() { echo "$(date '+%F %T') $*" >> "$LOG"; }
+
+# 救援记录（结构化，便于以后统计优化）
+RESCUE_LOG="$HOME/Library/Logs/sidecar-rescue.log"
+rescue_log() {  # $1=级别 $2=动作 $3=结果
+    printf '%s|%s|%s|%s|%s\n' "$(date '+%F %T')" "$1" "$2" "$3" "$(( $(date +%s) - DISCONNECTED_AT ))" >> "$RESCUE_LOG"
+}
+
+# 需要 root 的动作（从配置读密码）
+sudo_run() {
+    [ -r "$HOME/.config/sidecar/admin-pw" ] || return 1
+    sudo -S "$@" < "$HOME/.config/sidecar/admin-pw" >/dev/null 2>&1
+}
+
+# 分级救援：级别越高动作越重
+rescue() {  # $1 = L2/L3/L4/L5
+    case "$1" in
+      L2) logit "[救援 L2] 清会话：disconnect + connect"
+          "$BIN/sidecarctl" disconnect >/dev/null 2>&1; sleep 2
+          "$BIN/sidecarctl" connect "$TARGET" >/dev/null 2>&1 ;;
+      L3) logit "[救援 L3] 重建虚拟屏后重连"
+          launchctl kickstart -k "gui/$GU/com.dsh.vdisplay" >/dev/null 2>&1; sleep 4
+          "$BIN/sidecarctl" connect "$TARGET" >/dev/null 2>&1 ;;
+      L4) logit "[救援 L4] 重启随航代理 sidecar-display-agent / sidecar-relay"
+          launchctl kickstart -k "gui/$GU/com.apple.sidecar-display-agent" >/dev/null 2>&1
+          launchctl kickstart -k "gui/$GU/com.apple.sidecar-relay" >/dev/null 2>&1
+          sleep 5; "$BIN/sidecarctl" connect "$TARGET" >/dev/null 2>&1 ;;
+      L5) logit "[救援 L5] 重启设备发现层 rapportd"
+          sudo_run launchctl kickstart -k system/com.apple.rapportd
+          sleep 8; "$BIN/sidecarctl" connect "$TARGET" >/dev/null 2>&1 ;;
+    esac
+    rescue_log "$1" "执行" "$(connected && echo 成功 || echo 失败)"
+}
 
 idle_seconds() {
     local ns
@@ -53,11 +82,14 @@ ipad_rssi() {
 
 BT=$(sysctl -n kern.boottime | sed -E 's/^\{ sec = ([0-9]+).*/\1/')
 UPTIME=$(( $(date +%s) - BT ))
-logit "=== sidecar-guard v25 启动 (pid $$, 开机后 ${UPTIME}s) ==="
+logit "=== sidecar-guard v26 启动 (pid $$, 开机后 ${UPTIME}s) ==="
 # 预热：立刻触发一次设备发现（sidecarctl 在列表为空时会强制从 relay 拉取）
 "$BIN/sidecarctl" list >/dev/null 2>&1 &
 FAILS=0; CONNECTS=0; TICKN=0; LAST_HB=$(date +%s); LAST_TRIGGER=""
-BACKOFF=5; NEAR=0; COOLDOWN_UNTIL=0; GONE_SINCE=0; NEAR_SINCE=0; STANDBY=0; STANDBY_AT=0; WAKE_GRACE=0; SCREEN_GONE=0
+BACKOFF=5; NEAR=0; COOLDOWN_UNTIL=0
+FAIL_TOTAL=0          # 连续失败次数（成功即清零）
+DISCONNECTED_AT=0     # 本次断开的起始时间
+RESCUED=""            # 本次恢复用到的最高级别
 
 while true; do
     now=$(date +%s); TICKN=$((TICKN+1))
@@ -76,38 +108,6 @@ while true; do
         fi
     fi
 
-    # --- 合盖待机（v25：用「iPad 屏幕是否在位」判断，最可靠）---
-    screens=$("$BIN/dcount" 2>/dev/null || echo 1)
-    if [ "$screens" -ge 1 ] 2>/dev/null; then
-        SCREEN_GONE=0
-    else
-        [ "$SCREEN_GONE" -eq 0 ] && SCREEN_GONE=$now
-    fi
-
-    if [ "$STANDBY" -eq 1 ]; then
-        printf "updated=%s\nstate=standby\nstandby_since=%ss\nconnected=%s\n" \
-            "$(date '+%F %T')" $(( now - STANDBY_AT )) \
-            "$(connected && echo yes || echo no)" > "$STATUS"
-        if [ "$screens" -ge 1 ] 2>/dev/null; then
-            STANDBY=0; SCREEN_GONE=0; FAILS=0; BACKOFF=5; WAKE_GRACE=$(( now + 120 ))
-            logit "[合盖唤醒] iPad 屏幕恢复，退出待机"
-            if ! pgrep -f "$BIN/vdisplay" >/dev/null 2>&1; then
-                launchctl kickstart -k "gui/$GU/com.dsh.vdisplay" >/dev/null 2>&1
-                sleep 3
-            fi
-            continue
-        fi
-        sleep 5; continue
-    fi
-
-    if [ "$SCREEN_GONE" -gt 0 ] && [ "$now" -ge "$WAKE_GRACE" ] && [ "$UP" -ge "$BOOT_PHASE" ] \
-       && [ $(( now - SCREEN_GONE )) -ge "$COVER_SECS" ]; then
-        STANDBY=1; STANDBY_AT=$now
-        logit "[合盖待机] iPad 屏幕已消失 $(( now - SCREEN_GONE ))s，断开并停止重连（保持虚拟屏）"
-        "$BIN/sidecarctl" disconnect >/dev/null 2>&1
-        sleep 5; continue
-    fi
-
     # --- 虚拟屏：只由 LaunchAgent 负责（单一所有者，避免双开）---
     if ! pgrep -f "$BIN/vdisplay" >/dev/null 2>&1; then
         launchctl kickstart -k "gui/$GU/com.dsh.vdisplay" >/dev/null 2>&1
@@ -122,7 +122,12 @@ while true; do
 
     if connected; then
         if [ "$FAILS" -gt 0 ]; then logit "已恢复（本次累计重连 ${CONNECTS} 次）"; fi
+        if [ "$FAIL_TOTAL" -gt 0 ]; then
+            logit "[恢复] 断开 ${SECONDS_SINCE_DISCONNECT}s，共尝试 ${FAIL_TOTAL} 次${RESCUED:+，最高用到 ${RESCUED}}"
+            printf '%s|成功|恢复|%s|%s\n' "$(date '+%F %T')" "${RESCUED:-L1}" "$SECONDS_SINCE_DISCONNECT" >> "$RESCUE_LOG"
+        fi
         FAILS=0; BACKOFF=5; COOLDOWN_UNTIL=0; state=yes
+        FAIL_TOTAL=0; DISCONNECTED_AT=0; RESCUED=""
     else
         state=no
         if [ "$now" -lt "$COOLDOWN_UNTIL" ]; then
@@ -156,7 +161,15 @@ while true; do
             fi
 
             if [ -n "$trigger" ]; then
-                CONNECTS=$((CONNECTS+1)); FAILS=$((FAILS+1))
+                CONNECTS=$((CONNECTS+1)); FAILS=$((FAILS+1)); FAIL_TOTAL=$((FAIL_TOTAL+1))
+                [ "$DISCONNECTED_AT" -eq 0 ] && DISCONNECTED_AT=$(date +%s)
+                SECONDS_SINCE_DISCONNECT=$(( $(date +%s) - DISCONNECTED_AT ))
+                case "$FAIL_TOTAL" in
+                  3)  rescue L2; RESCUED="L2" ;;
+                  6)  rescue L3; RESCUED="L3" ;;
+                  10) rescue L4; RESCUED="L4" ;;
+                  20) rescue L5; RESCUED="L5" ;;
+                esac
                 logit "[${trigger}] 未连接 → sidecarctl connect"
                 out=$("$BIN/sidecarctl" connect "$TARGET" 2>&1 | tr '\n' ' ')
                 logit "sidecarctl: $out"

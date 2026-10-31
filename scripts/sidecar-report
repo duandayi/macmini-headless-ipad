@@ -54,3 +54,28 @@ echo
 echo "=== 当前状态 ==="
 grep -o "connected=[a-z]*" /tmp/sidecar-guard.status 2>/dev/null | sed 's/^/  /'
 grep -o "connects=[0-9]*\|usb_ipad=[a-z]*\|last_trigger=.*" /tmp/sidecar-guard.status 2>/dev/null | sed 's/^/  /'
+
+# ---------- 救援统计（数据驱动优化的依据）----------
+RLOG="$HOME/Library/Logs/sidecar-rescue.log"
+if [ -s "$RLOG" ]; then
+    echo
+    echo "=== 救援统计（自动恢复能力）==="
+    /Users/duandayi/.dsh/dsh-runtimes/dsh-primary-runtime/dependencies/python/bin/python3 - "$RLOG" <<'RLOGEOF'
+import sys, collections
+rows = [l.split("|") for l in open(sys.argv[1], encoding="utf-8").read().splitlines() if l.count("|") == 4]
+used = collections.Counter(); ok = collections.Counter(); durs = []
+for t, kind, level, result, secs in rows:
+    if kind == "救援":
+        used[level] += 1
+        if result == "成功": ok[level] += 1
+    elif kind == "恢复" and secs.isdigit():
+        durs.append(int(secs))
+print("  各级救援使用次数 / 成功次数：")
+for lv in ["L2","L3","L4","L5"]:
+    if used[lv]: print(f"    {lv}: {used[lv]} 次 / 成功 {ok[lv]} 次")
+if not used: print("    （还没有触发过救援）")
+if durs:
+    print(f"  平均恢复耗时：{sum(durs)//len(durs)} 秒（共 {len(durs)} 次）")
+    print(f"  最长恢复耗时：{max(durs)} 秒")
+RLOGEOF
+fi
