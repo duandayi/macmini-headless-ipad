@@ -1,5 +1,5 @@
 #!/bin/bash
-# sidecar-guard v21 — 私有 API 直连 + USB 优先 + 近场感应 + 不打扰用户
+# sidecar-guard v22 — 私有 API 直连 + USB 优先 + 近场感应 + 不打扰用户
 LOG="$HOME/Library/Logs/sidecar-guard.log"
 STATUS="/tmp/sidecar-guard.status"
 PAUSE="$HOME/.sidecar-pause"
@@ -13,6 +13,8 @@ FALLBACK_TICKS=6
 GU=$(id -u)
 COOLDOWN_FILE=/tmp/sidecar-cooldown
 BOOT_PHASE=300
+STANDBY_SECS=${SIDECAR_STANDBY_SECS:-180}   # iPad 消失多久后进入合盖待机
+STANDBY_IDLE=${SIDECAR_STANDBY_IDLE:-120}   # 同时要求 Mac 侧无操作
 PAUSE_MAX=600          # 暂停上限 10 分钟
 logit() { echo "$(date '+%F %T') $*" >> "$LOG"; }
 
@@ -50,11 +52,11 @@ ipad_rssi() {
 
 BT=$(sysctl -n kern.boottime | sed -E 's/^\{ sec = ([0-9]+).*/\1/')
 UPTIME=$(( $(date +%s) - BT ))
-logit "=== sidecar-guard v21 启动 (pid $$, 开机后 ${UPTIME}s) ==="
+logit "=== sidecar-guard v22 启动 (pid $$, 开机后 ${UPTIME}s) ==="
 # 预热：立刻触发一次设备发现（sidecarctl 在列表为空时会强制从 relay 拉取）
 "$BIN/sidecarctl" list >/dev/null 2>&1 &
 FAILS=0; CONNECTS=0; TICKN=0; LAST_HB=$(date +%s); LAST_TRIGGER=""
-BACKOFF=5; NEAR=0; COOLDOWN_UNTIL=0
+BACKOFF=5; NEAR=0; COOLDOWN_UNTIL=0; GONE_SINCE=0; STANDBY=0; STANDBY_AT=0
 
 while true; do
     now=$(date +%s); TICKN=$((TICKN+1))
@@ -71,6 +73,36 @@ while true; do
                 "$(connected && echo yes || echo no)" > "$STATUS"
             sleep 15; continue
         fi
+    fi
+
+    # --- 合盖待机：iPad 长时间不可见 + Mac 无操作 → 停止重连/停虚拟屏 ---
+    if connected; then
+        GONE_SINCE=0
+    elif [ "$(devices_count)" -ge 1 ]; then
+        GONE_SINCE=0           # 设备还在，只是没连上 → 不算合盖
+    elif [ "$GONE_SINCE" -eq 0 ]; then
+        GONE_SINCE=$now
+    fi
+
+    if [ "$STANDBY" -eq 1 ]; then
+        # 待机中：只看设备是否回来，不重连、不拉虚拟屏
+        printf "updated=%s\nstate=standby\nstandby_since=%ss\nconnected=no\n" \
+            "$(date '+%F %T')" $(( now - STANDBY_AT )) > "$STATUS"
+        if [ "$(devices_count)" -ge 1 ]; then
+            STANDBY=0; GONE_SINCE=0
+            logit "[合盖唤醒] 设备重新可见，退出待机 → 重建虚拟屏并连接"
+            launchctl kickstart -k "gui/$GU/com.dsh.vdisplay" >/dev/null 2>&1
+            sleep 3
+        else
+            sleep 20; continue
+        fi
+    elif [ "$GONE_SINCE" -gt 0 ] && [ $(( now - GONE_SINCE )) -ge "$STANDBY_SECS" ] && [ "$(idle_seconds)" -ge "$STANDBY_IDLE" ]; then
+        STANDBY=1; STANDBY_AT=$now
+        logit "[合盖待机] iPad 已消失 $(( now - GONE_SINCE ))s 且 Mac 空闲，停止重连并释放虚拟屏"
+        "$BIN/sidecarctl" disconnect >/dev/null 2>&1
+        launchctl stop "gui/$GU/com.dsh.vdisplay" >/dev/null 2>&1
+        pkill -f "$BIN/vdisplay" >/dev/null 2>&1
+        sleep 20; continue
     fi
 
     # --- 虚拟屏：只由 LaunchAgent 负责（单一所有者，避免双开）---

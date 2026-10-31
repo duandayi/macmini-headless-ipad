@@ -272,3 +272,15 @@ Issues and pull requests are welcome. Please note:
 ---
 
 <p align="center"><sub>If this gives an idle Mac mini a purpose again, a ⭐ is enough.</sub></p>
+
+**Cover-closed standby (new in v22)**
+
+When the iPad is closed or put away, the Mac stops reconnecting and releases the virtual display within **3 minutes**, then waits quietly:
+
+- Trigger: iPad invisible over Bluetooth for **≥180 s** *and* the Mac idle for **≥120 s**
+- While waiting: session disconnected, virtual display released, no reconnection attempts (the Mac stays awake, ready to resume)
+- Wake: as soon as the iPad is visible again, the virtual display is rebuilt and the session reconnects — **without touching the Mac**
+- Never triggers when: connected over USB, auto-reconnect paused, or the Mac is in active use
+
+Thresholds are configurable: `SIDECAR_STANDBY_SECS` (default 180) and `SIDECAR_STANDBY_IDLE` (default 120).
+
