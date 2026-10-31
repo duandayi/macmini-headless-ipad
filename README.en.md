@@ -23,6 +23,14 @@
 
 <p align="center"><img src="assets/demo.gif" width="760" alt="auto-connect demo"></p>
 
+> ### On paid versions
+>
+> Everything here is free and open source (MIT). If you find someone reselling a
+> packaged copy elsewhere, remember: you can get the same capability here for nothing.
+>
+> What this project relies on is provided by macOS itself — no paid app invented it.
+> May it reach everyone who either cannot afford the paid route, or simply does not want it.
+
 ## What this is
 
 A Mac mini sits in the living room with no monitor, no keyboard — just a power cable.
