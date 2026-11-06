@@ -1,5 +1,5 @@
 #!/bin/bash
-# sidecar-guard v26 — 私有 API 直连 + USB 优先 + 近场感应 + 不打扰用户
+# sidecar-guard v27 — 私有 API 直连 + USB 优先 + 近场感应 + 不打扰用户
 LOG="$HOME/Library/Logs/sidecar-guard.log"
 STATUS="/tmp/sidecar-guard.status"
 PAUSE="$HOME/.sidecar-pause"
@@ -82,7 +82,7 @@ ipad_rssi() {
 
 BT=$(sysctl -n kern.boottime | sed -E 's/^\{ sec = ([0-9]+).*/\1/')
 UPTIME=$(( $(date +%s) - BT ))
-logit "=== sidecar-guard v26 启动 (pid $$, 开机后 ${UPTIME}s) ==="
+logit "=== sidecar-guard v27 启动 (pid $$, 开机后 ${UPTIME}s) ==="
 # 预热：立刻触发一次设备发现（sidecarctl 在列表为空时会强制从 relay 拉取）
 "$BIN/sidecarctl" list >/dev/null 2>&1 &
 FAILS=0; CONNECTS=0; TICKN=0; LAST_HB=$(date +%s); LAST_TRIGGER=""
@@ -178,6 +178,20 @@ while true; do
                 if connected; then
                     logit "重连成功"; FAILS=0; BACKOFF=5; state=yes
                 else
+                    # 陈旧会话：iPad 端还挂着上一次的随航 → 立刻清掉再试，不必等到 L2
+                    case "$out" in
+                        *"already in use"*|*"in use"*|*"Connection invalidating"*)
+                            logit "[陈旧会话] 检测到设备被占用，立即断开重连"
+                            "$BIN/sidecarctl" disconnect >/dev/null 2>&1
+                            sleep 2
+                            "$BIN/sidecarctl" connect "$TARGET" >/dev/null 2>&1
+                            sleep 2
+                            if connected; then
+                                logit "重连成功（清会话后）"; FAILS=0; BACKOFF=5; state=yes
+                                continue
+                            fi
+                            ;; 
+                    esac
                     # 设备还能被发现 → 链路即将恢复，快速重试（10 秒）
                     # 设备找不到   → 多半是 iPad 关机，慢速重试（120 秒），省电
                     devs=$(devices_count)
